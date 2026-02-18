@@ -1,0 +1,26 @@
+package com.stockbot.utils;
+
+import java.util.regex.Pattern;
+
+public class TextFormatter {
+    private static final Pattern MD_MARKS = Pattern.compile("(?m)^\\s*(#{1,6}\\s+|\\*\\*|\\*|`{1,3}|-\\s+|>\\s+)");
+    private static final Pattern MD_STRONG_MARKS = Pattern.compile("(\\*\\*|__)");
+    private static final Pattern MULTI_BLANK = Pattern.compile("\n{3,}");
+    private static final Pattern LINEBREAK_IN_PARA = Pattern.compile("(?<!\n)\n(?!\n)");
+
+    // 规则：去掉标记语法符号，保留段落分隔，但将段内换行合并为空格
+    public static String cleanForEmail(String s) {
+        if (s == null) return "";
+        String t = s.replace("\r\n", "\n").replace("\r", "\n");
+        t = MD_MARKS.matcher(t).replaceAll("");
+        // 删除行内可能出现的强调标记，例如 "**text**" 或末尾的 "**"
+        t = MD_STRONG_MARKS.matcher(t).replaceAll("");
+        // 将段落内的单个换行合并为空格
+        t = LINEBREAK_IN_PARA.matcher(t).replaceAll(" ");
+        // 规范空行：段落之间最多保留 1 个空行
+        t = MULTI_BLANK.matcher(t).replaceAll("\n\n");
+        // 去除行尾空白
+        t = t.replaceAll("[ \t]+\n", "\n").trim();
+        return t;
+    }
+}

@@ -1,0 +1,9 @@
+﻿target/
+outputs/
+*.zip
+*.log
+.idea/
+.vscode/
+.settings/
+.classpath
+.project
