@@ -1,9 +1,54 @@
-﻿target/
+# ===== Build artifacts =====
+target/
+out/
+build/
+dist/
+release/
 outputs/
+dependency-reduced-pom.xml
+*.class
+*.jar
+*.war
+*.ear
 *.zip
+
+# ===== Logs and runtime files =====
 *.log
+logs/
+hs_err_pid*
+replay_pid*
+
+# ===== IDE / Editor =====
 .idea/
+*.iml
 .vscode/
 .settings/
 .classpath
 .project
+.factorypath
+*.launch
+
+# ===== OS files =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.Spotlight-V100/
+.Trashes/
+
+# ===== Local environment / secrets =====
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+config.local.properties
+watchlist.local.txt
+
+# ===== Caches and temp files =====
+.cache/
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
