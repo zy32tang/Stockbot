@@ -11,7 +11,17 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.Locale;
 
+/**
+ * 模块说明：SqlLogProxy（class）。
+ * 主要职责：承载 db 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 final class SqlLogProxy {
+/**
+ * 方法说明：SqlLogProxy，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private SqlLogProxy() {
     }
 
@@ -33,6 +43,11 @@ final class SqlLogProxy {
             this.logger = logger;
         }
 
+/**
+ * 方法说明：invoke，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             String name = method.getName();
@@ -55,6 +70,11 @@ final class SqlLogProxy {
         }
     }
 
+/**
+ * 方法说明：wrapPreparedStatement，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static PreparedStatement wrapPreparedStatement(PreparedStatement delegate, String sql, Logger logger) {
         InvocationHandler handler = new PreparedStatementHandler(delegate, sql, logger);
         return (PreparedStatement) Proxy.newProxyInstance(
@@ -64,6 +84,11 @@ final class SqlLogProxy {
         );
     }
 
+/**
+ * 方法说明：wrapStatement，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Statement wrapStatement(Statement delegate, Logger logger) {
         InvocationHandler handler = new StatementHandler(delegate, logger);
         return (Statement) Proxy.newProxyInstance(
@@ -157,6 +182,11 @@ final class SqlLogProxy {
             this.sql = sql == null ? "" : sql;
         }
 
+/**
+ * 方法说明：invoke，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             String name = method.getName();
@@ -199,6 +229,11 @@ final class SqlLogProxy {
             this.delegate = delegate;
         }
 
+/**
+ * 方法说明：invoke，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             String name = method.getName();

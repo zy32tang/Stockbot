@@ -17,13 +17,28 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * 模块说明：RunDao（class）。
+ * 主要职责：承载 db 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class RunDao {
     private final Database database;
 
+/**
+ * 方法说明：RunDao，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public RunDao(Database database) {
         this.database = database;
     }
 
+/**
+ * 方法说明：recoverDanglingRuns，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void recoverDanglingRuns() {
         try (Connection conn = database.connect()) {
             Set<String> columns = getColumns(conn, "runs");
@@ -52,6 +67,11 @@ public final class RunDao {
         }
     }
 
+/**
+ * 方法说明：startRun，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public long startRun(String mode, String notes) throws SQLException {
         Instant now = Instant.now();
         try (Connection conn = database.connect()) {
@@ -112,6 +132,11 @@ public final class RunDao {
         throw new SQLException("failed to create run");
     }
 
+/**
+ * 方法说明：finishRun，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void finishRun(
             long runId,
             String status,
@@ -139,6 +164,11 @@ public final class RunDao {
         }
     }
 
+/**
+ * 方法说明：insertCandidates，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void insertCandidates(long runId, List<ScoredCandidate> candidates) throws SQLException {
         if (candidates == null || candidates.isEmpty()) {
             return;
@@ -169,6 +199,11 @@ public final class RunDao {
         }
     }
 
+/**
+ * 方法说明：listRecentRuns，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<RunRow> listRecentRuns(int limit) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs ORDER BY id DESC LIMIT ?";
@@ -185,6 +220,11 @@ public final class RunDao {
         return out;
     }
 
+/**
+ * 方法说明：listSuccessfulDailyRuns，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<RunRow> listSuccessfulDailyRuns(int limit) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs WHERE mode='DAILY' AND status='SUCCESS' ORDER BY id DESC LIMIT ?";
@@ -201,6 +241,11 @@ public final class RunDao {
         return out;
     }
 
+/**
+ * 方法说明：findLatestDailyRunWithReport，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Optional<RunRow> findLatestDailyRunWithReport() throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs " +
@@ -219,6 +264,11 @@ public final class RunDao {
         return Optional.empty();
     }
 
+/**
+ * 方法说明：findLatestMarketScanRun，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Optional<RunRow> findLatestMarketScanRun() throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs r " +
@@ -236,6 +286,11 @@ public final class RunDao {
         return Optional.empty();
     }
 
+/**
+ * 方法说明：findById，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Optional<RunRow> findById(long runId) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs WHERE id=? LIMIT 1";
@@ -251,6 +306,11 @@ public final class RunDao {
         return Optional.empty();
     }
 
+/**
+ * 方法说明：findLatestRunWithCandidatesBefore，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Optional<RunRow> findLatestRunWithCandidatesBefore(long beforeRunId) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs r " +
@@ -270,6 +330,11 @@ public final class RunDao {
         return Optional.empty();
     }
 
+/**
+ * 方法说明：listCandidates，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<CandidateRow> listCandidates(long runId, int topK) throws SQLException {
         String sql = "SELECT run_id, rank_no, ticker, code, name, score, close " +
                 "FROM candidates WHERE run_id=? ORDER BY rank_no ASC LIMIT ?";
@@ -296,6 +361,11 @@ public final class RunDao {
         return out;
     }
 
+/**
+ * 方法说明：listScoredCandidates，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<ScoredCandidate> listScoredCandidates(long runId, int topK) throws SQLException {
         String sql = "SELECT ticker, code, name, market, score, close, reasons_json, indicators_json " +
                 "FROM candidates WHERE run_id=? ORDER BY rank_no ASC LIMIT ?";
@@ -322,6 +392,11 @@ public final class RunDao {
         return out;
     }
 
+/**
+ * 方法说明：listCandidateTickers，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<String> listCandidateTickers(long runId, int limit) throws SQLException {
         String sql = "SELECT ticker FROM candidates WHERE run_id=? ORDER BY rank_no ASC LIMIT ?";
         List<String> out = new ArrayList<>();
@@ -341,6 +416,11 @@ public final class RunDao {
         return out;
     }
 
+/**
+ * 方法说明：summarizeRecentRuns，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String summarizeRecentRuns(int limit) throws SQLException {
         List<RunRow> runs = listRecentRuns(limit);
         if (runs.isEmpty()) {
@@ -364,6 +444,11 @@ public final class RunDao {
         return sb.toString().trim();
     }
 
+/**
+ * 方法说明：mapRun，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private RunRow mapRun(ResultSet rs) throws SQLException {
         Instant started = parseInstant(rs.getString("started_at"));
         Instant finished = parseInstant(rs.getString("finished_at"));
@@ -382,6 +467,11 @@ public final class RunDao {
         );
     }
 
+/**
+ * 方法说明：parseInstant，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Instant parseInstant(String text) {
         if (text == null || text.isEmpty()) {
             return null;
@@ -393,6 +483,11 @@ public final class RunDao {
         }
     }
 
+/**
+ * 方法说明：getColumns，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Set<String> getColumns(Connection conn, String table) throws SQLException {
         Set<String> out = new HashSet<>();
         try (PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(" + table + ")");
@@ -407,6 +502,11 @@ public final class RunDao {
         return out;
     }
 
+/**
+ * 方法说明：placeholders，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String placeholders(int n) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < n; i++) {

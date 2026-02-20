@@ -17,6 +17,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * 模块说明：StooqClient（class）。
+ * 主要职责：承载 data 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class StooqClient {
     private final String baseUrl;
     private final int timeoutSec;
@@ -31,6 +36,11 @@ public final class StooqClient {
     private final AtomicInteger timeoutStreak = new AtomicInteger(0);
     private final AtomicLong circuitOpenUntilNanos = new AtomicLong(0L);
 
+/**
+ * 方法说明：StooqClient，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public StooqClient(Config config) {
         this.baseUrl = config.getString("stooq.base_url", "https://stooq.com/q/d/l/?s=%s&i=d");
         this.timeoutSec = Math.max(3, config.getInt("stooq.request_timeout_sec", 20));
@@ -46,6 +56,11 @@ public final class StooqClient {
                 .build();
     }
 
+/**
+ * 方法说明：fetchDaily，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<BarDaily> fetchDaily(String ticker) throws Exception {
         FetchDailyResult result = fetchDailyProfiled(ticker);
         if (result.success) {
@@ -54,10 +69,20 @@ public final class StooqClient {
         throw new IllegalStateException(result.error.isEmpty() ? "stooq_fetch_failed" : result.error);
     }
 
+/**
+ * 方法说明：fetchDailyProfiled，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public FetchDailyResult fetchDailyProfiled(String ticker) {
         return fetchDailyProfiled(ticker, retryCount);
     }
 
+/**
+ * 方法说明：fetchDailyProfiled，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public FetchDailyResult fetchDailyProfiled(String ticker, int retryLimitOverride) {
         String normalizedTicker = ticker.toLowerCase(Locale.ROOT).trim();
         if (normalizedTicker.isEmpty()) {
@@ -155,10 +180,20 @@ public final class StooqClient {
             this.errorCategory = errorCategory == null ? "other" : errorCategory;
         }
 
+/**
+ * 方法说明：success，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         public static FetchDailyResult success(List<BarDaily> bars, long downloadNanos, long parseNanos, int attempts) {
             return new FetchDailyResult(bars, downloadNanos, parseNanos, attempts, true, "", "");
         }
 
+/**
+ * 方法说明：failed，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         public static FetchDailyResult failed(
                 String error,
                 String errorCategory,
@@ -170,6 +205,11 @@ public final class StooqClient {
         }
     }
 
+/**
+ * 方法说明：onRequestResult，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void onRequestResult(boolean success, String failureCategory) {
         if (success) {
             timeoutStreak.set(0);
@@ -188,6 +228,11 @@ public final class StooqClient {
         openCircuitCooldown();
     }
 
+/**
+ * 方法说明：openCircuitCooldown，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void openCircuitCooldown() {
         if (circuitCooldownMs <= 0L) {
             return;
@@ -212,6 +257,11 @@ public final class StooqClient {
         }
     }
 
+/**
+ * 方法说明：waitIfCircuitOpen，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void waitIfCircuitOpen() throws InterruptedException {
         while (true) {
             long until = circuitOpenUntilNanos.get();
@@ -223,6 +273,11 @@ public final class StooqClient {
         }
     }
 
+/**
+ * 方法说明：classifyFailureMessage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static String classifyFailureMessage(String message) {
         String msg = message == null ? "" : message.toLowerCase(Locale.ROOT);
         if (msg.contains("timed out") || msg.contains("timeout") || msg.contains("connection reset")) {
@@ -239,6 +294,11 @@ public final class StooqClient {
         return "other";
     }
 
+/**
+ * 方法说明：throttleRequest，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void throttleRequest(long pauseMs) throws InterruptedException {
         if (pauseMs <= 0L) {
             return;
@@ -259,6 +319,11 @@ public final class StooqClient {
         }
     }
 
+/**
+ * 方法说明：isRetryable，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean isRetryable(Exception e) {
         String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
         if (msg.contains("timed out") || msg.contains("timeout") || msg.contains("connection reset")) {
@@ -271,6 +336,11 @@ public final class StooqClient {
         return false;
     }
 
+/**
+ * 方法说明：parseCsv，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<BarDaily> parseCsv(String ticker, String body) {
         if (body == null) {
             return List.of();
@@ -326,6 +396,11 @@ public final class StooqClient {
         return new ArrayList<>(all.subList(all.size() - maxBars, all.size()));
     }
 
+/**
+ * 方法说明：parseDouble，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double parseDouble(String input) {
         String v = input == null ? "" : input.trim();
         if (v.isEmpty() || v.equalsIgnoreCase("null")) {

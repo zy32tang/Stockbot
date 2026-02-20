@@ -7,6 +7,11 @@ import com.stockbot.jp.model.RiskDecision;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 模块说明：RiskFilter（class）。
+ * 主要职责：承载 strategy 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class RiskFilter {
     private static final List<String> RISK_FLAG_NAMES = List.of(
             "atr_too_high",
@@ -17,10 +22,20 @@ public final class RiskFilter {
 
     private final Config config;
 
+/**
+ * 方法说明：RiskFilter，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public RiskFilter(Config config) {
         this.config = config;
     }
 
+/**
+ * 方法说明：evaluate，负责评估条件并输出判定结论。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public RiskDecision evaluate(IndicatorSnapshot ind) {
         double maxAtrPct = config.getDouble("risk.max_atr_pct", 9.0);
         double maxVolatilityPct = config.getDouble("risk.max_volatility_pct", 80.0);
@@ -68,6 +83,11 @@ public final class RiskFilter {
         return new RiskDecision(pass, penalty, flags);
     }
 
+/**
+ * 方法说明：riskFlagNames，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static List<String> riskFlagNames() {
         return RISK_FLAG_NAMES;
     }

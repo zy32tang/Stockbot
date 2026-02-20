@@ -12,7 +12,7 @@
 # Config-driven schedule start (no args, DAILY mode)
 java -jar target/stockbot-3.0.0.jar
 
-# Reset batch checkpoint
+# Reset batch checkpoint + background startup trigger checkpoint
 java -jar target/stockbot-3.0.0.jar --reset-batch
 
 # Send test email only (reuse latest market scan, no full-market rescan)
@@ -63,7 +63,11 @@ Fast but controllable profile:
 
 Scheduling behavior:
 - no CLI args in DAILY mode start a background scanner thread.
-- background scanner only does all-market segmented scan + SQLite upsert (no watchlist analysis in this thread).
+- background scanner checks startup timestamps in metadata and runs all-market scan when:
+  - first startup (no previous startup record), or
+  - startup gap from previous startup is >= 8 hours.
+- while the process keeps running, background scanner also runs one full market scan every 8 hours.
+- background scanner scan (when triggered) is a full scan from segment 1 (checkpoint reset before run).
 - at configured times (`schedule.times`, e.g. `11:30,15:00`), scheduler runs watchlist analysis, merges latest all-market snapshot, then generates/sends one HTML email.
 - if there is no fresh market-scan result for today, scheduler runs one market-scan cycle first, then builds the merged report.
 

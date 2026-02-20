@@ -10,6 +10,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 模块说明：CandidateFilter（class）。
+ * 主要职责：承载 strategy 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class CandidateFilter {
     private static final List<String> HARD_RULE_NAMES = List.of(
             "history_too_short",
@@ -30,10 +35,20 @@ public final class CandidateFilter {
 
     private final Config config;
 
+/**
+ * 方法说明：CandidateFilter，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public CandidateFilter(Config config) {
         this.config = config;
     }
 
+/**
+ * 方法说明：evaluate，负责评估条件并输出判定结论。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public FilterDecision evaluate(List<BarDaily> bars, IndicatorSnapshot ind) {
         List<String> reasons = new ArrayList<>();
         Map<String, Object> metrics = new LinkedHashMap<>();
@@ -117,10 +132,20 @@ public final class CandidateFilter {
         return new FilterDecision(passed, reasons, metrics);
     }
 
+/**
+ * 方法说明：hardRuleNames，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static List<String> hardRuleNames() {
         return HARD_RULE_NAMES;
     }
 
+/**
+ * 方法说明：signalRuleNames，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static List<String> signalRuleNames() {
         return SIGNAL_RULE_NAMES;
     }

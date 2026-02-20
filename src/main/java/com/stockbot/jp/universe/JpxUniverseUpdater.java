@@ -30,6 +30,11 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * 模块说明：JpxUniverseUpdater（class）。
+ * 主要职责：承载 universe 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class JpxUniverseUpdater {
     private static final String META_LAST_SYNC = "jpx.universe.last_sync_at";
     private static final String SOURCE = "JPX";
@@ -39,6 +44,11 @@ public final class JpxUniverseUpdater {
     private final UniverseDao universeDao;
     private final HttpClient httpClient;
 
+/**
+ * 方法说明：JpxUniverseUpdater，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public JpxUniverseUpdater(Config config, MetadataDao metadataDao, UniverseDao universeDao) {
         this.config = config;
         this.metadataDao = metadataDao;
@@ -49,6 +59,11 @@ public final class JpxUniverseUpdater {
                 .build();
     }
 
+/**
+ * 方法说明：updateIfNeeded，负责更新状态与关联数据。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public UniverseUpdateResult updateIfNeeded(boolean forceUpdate) throws Exception {
         boolean force = forceUpdate || config.getBoolean("jpx.universe.force_update");
         int existing = universeDao.countActive();
@@ -79,6 +94,11 @@ public final class JpxUniverseUpdater {
         return new UniverseUpdateResult(true, upserted, "updated from JPX");
     }
 
+/**
+ * 方法说明：download，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private byte[] download(String url) throws Exception {
         int timeoutSec = Math.max(10, config.getInt("stooq.request_timeout_sec", 20));
         HttpRequest request = HttpRequest.newBuilder()
@@ -94,6 +114,11 @@ public final class JpxUniverseUpdater {
         return response.body();
     }
 
+/**
+ * 方法说明：parseUniverse，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<UniverseRecord> parseUniverse(String url, byte[] bytes) throws Exception {
         String lower = url.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".csv")) {
@@ -102,6 +127,11 @@ public final class JpxUniverseUpdater {
         return parseExcel(bytes);
     }
 
+/**
+ * 方法说明：parseExcel，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<UniverseRecord> parseExcel(byte[] bytes) throws Exception {
         try (Workbook wb = WorkbookFactory.create(new ByteArrayInputStream(bytes))) {
             DataFormatter formatter = new DataFormatter(Locale.JAPAN);
@@ -129,6 +159,11 @@ public final class JpxUniverseUpdater {
         }
     }
 
+/**
+ * 方法说明：parseExcelByHeader，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<UniverseRecord> parseExcelByHeader(Sheet sheet, DataFormatter formatter) {
         List<UniverseRecord> out = new ArrayList<>();
         Set<String> dedup = new HashSet<>();
@@ -159,6 +194,11 @@ public final class JpxUniverseUpdater {
         return out;
     }
 
+/**
+ * 方法说明：parseExcelByHeuristic，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<UniverseRecord> parseExcelByHeuristic(Sheet sheet, DataFormatter formatter) {
         List<UniverseRecord> out = new ArrayList<>();
         Set<String> dedup = new HashSet<>();
@@ -204,6 +244,11 @@ public final class JpxUniverseUpdater {
         return out;
     }
 
+/**
+ * 方法说明：parseCsv，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<UniverseRecord> parseCsv(byte[] bytes) {
         String text = decodeCsv(bytes);
         String[] lines = text.split("\\r?\\n");
@@ -255,6 +300,11 @@ public final class JpxUniverseUpdater {
         return out;
     }
 
+/**
+ * 方法说明：detectHeader，负责检测条件并输出判断结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private HeaderMapping detectHeader(Sheet sheet, DataFormatter formatter) {
         int bestRow = -1;
         int bestCode = -1;
@@ -290,6 +340,11 @@ public final class JpxUniverseUpdater {
         return new HeaderMapping(bestRow, bestCode, bestName, bestMarket);
     }
 
+/**
+ * 方法说明：getCellText，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String getCellText(Row row, int colIndex, DataFormatter formatter) {
         if (row == null || colIndex < 0) {
             return "";
@@ -301,6 +356,11 @@ public final class JpxUniverseUpdater {
         return formatter.formatCellValue(cell);
     }
 
+/**
+ * 方法说明：normalizeCode，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String normalizeCode(String input) {
         if (input == null) {
             return "";
@@ -316,6 +376,11 @@ public final class JpxUniverseUpdater {
         return digits.length() == 4 ? digits : "";
     }
 
+/**
+ * 方法说明：normalizeHeader，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String normalizeHeader(String text) {
         if (text == null) {
             return "";
@@ -327,24 +392,44 @@ public final class JpxUniverseUpdater {
                 .replace("_", "");
     }
 
+/**
+ * 方法说明：isCodeHeader，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean isCodeHeader(String normalized) {
         return normalized.contains("code")
                 || normalized.contains("銘柄コード")
                 || normalized.contains("コード");
     }
 
+/**
+ * 方法说明：isNameHeader，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean isNameHeader(String normalized) {
         return normalized.contains("銘柄名")
                 || normalized.contains("name")
                 || normalized.equals("銘柄");
     }
 
+/**
+ * 方法说明：isMarketHeader，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean isMarketHeader(String normalized) {
         return normalized.contains("市場")
                 || normalized.contains("商品区分")
                 || normalized.contains("market");
     }
 
+/**
+ * 方法说明：looksLikeName，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean looksLikeName(String text) {
         String value = text.trim();
         if (value.isEmpty()) {
@@ -360,6 +445,11 @@ public final class JpxUniverseUpdater {
         return true;
     }
 
+/**
+ * 方法说明：decodeCsv，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String decodeCsv(byte[] bytes) {
         String utf8 = new String(bytes, StandardCharsets.UTF_8);
         int replacementCount = utf8.length() - utf8.replace("\uFFFD", "").length();
@@ -370,6 +460,11 @@ public final class JpxUniverseUpdater {
         return utf8;
     }
 
+/**
+ * 方法说明：splitCsvLine，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<String> splitCsvLine(String line) {
         List<String> out = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -394,6 +489,11 @@ public final class JpxUniverseUpdater {
         return out;
     }
 
+/**
+ * 方法说明：parseInstant，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Instant parseInstant(String text) {
         try {
             return Instant.parse(text);

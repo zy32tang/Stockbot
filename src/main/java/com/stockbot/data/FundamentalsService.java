@@ -8,24 +8,49 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 模块说明：FundamentalsService（class）。
+ * 主要职责：承载 data 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public class FundamentalsService {
     private final MarketDataService market;
     private final Map<String, Double> scoreCache = new ConcurrentHashMap<>();
 
+/**
+ * 方法说明：FundamentalsService，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public FundamentalsService() {
         this(new HttpClientEx());
     }
 
+/**
+ * 方法说明：FundamentalsService，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public FundamentalsService(HttpClientEx http) {
         this.market = new MarketDataService(http);
     }
 
+/**
+ * 方法说明：scoreFundamentals，负责计算评分并输出分值。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public double scoreFundamentals(String ticker) {
         String key = normalizeTicker(ticker);
         if (key.isEmpty()) return 50.0;
         return scoreCache.computeIfAbsent(key, this::computeScoreSafe);
     }
 
+/**
+ * 方法说明：computeScoreSafe，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double computeScoreSafe(String ticker) {
         try {
             return computeScore(ticker);
@@ -34,6 +59,11 @@ public class FundamentalsService {
         }
     }
 
+/**
+ * 方法说明：computeScore，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double computeScore(String ticker) {
         List<DailyPrice> history = market.fetchDailyHistory(ticker, "1y", "1d");
         if (history == null || history.size() < 40) return 50.0;
@@ -74,6 +104,11 @@ public class FundamentalsService {
         return clamp(score, 0.0, 100.0);
     }
 
+/**
+ * 方法说明：movingAverage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Double movingAverage(List<DailyPrice> history, int window) {
         if (history == null || window <= 0 || history.size() < window) return null;
         double sum = 0.0;
@@ -83,6 +118,11 @@ public class FundamentalsService {
         return sum / window;
     }
 
+/**
+ * 方法说明：returnOver，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Double returnOver(List<DailyPrice> history, int days) {
         if (history == null || days <= 0 || history.size() <= days) return null;
         double last = history.get(history.size() - 1).close;
@@ -91,6 +131,11 @@ public class FundamentalsService {
         return (last - prev) / prev;
     }
 
+/**
+ * 方法说明：maxDrawdown，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Double maxDrawdown(List<DailyPrice> history) {
         if (history == null || history.isEmpty()) return null;
 
@@ -108,6 +153,11 @@ public class FundamentalsService {
         return minDrawdown;
     }
 
+/**
+ * 方法说明：annualizedVolatility，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Double annualizedVolatility(List<DailyPrice> history, int lookbackDays) {
         if (history == null || history.size() < 3) return null;
 
@@ -137,12 +187,22 @@ public class FundamentalsService {
         return Math.sqrt(variance) * Math.sqrt(252.0) * 100.0;
     }
 
+/**
+ * 方法说明：clamp，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static double clamp(double value, double min, double max) {
         if (value < min) return min;
         if (value > max) return max;
         return value;
     }
 
+/**
+ * 方法说明：normalizeTicker，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String normalizeTicker(String ticker) {
         if (ticker == null) return "";
         return ticker.trim().toUpperCase(Locale.ROOT);

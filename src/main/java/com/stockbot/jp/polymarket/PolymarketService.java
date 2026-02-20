@@ -20,17 +20,32 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 模块说明：PolymarketService（class）。
+ * 主要职责：承载 polymarket 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class PolymarketService {
     private final Config config;
     private final HttpClientEx http;
     private final OllamaClient ollamaClient;
 
+/**
+ * 方法说明：PolymarketService，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public PolymarketService(Config config, HttpClientEx http, OllamaClient ollamaClient) {
         this.config = config;
         this.http = http;
         this.ollamaClient = ollamaClient;
     }
 
+/**
+ * 方法说明：collectSignals，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public PolymarketSignalReport collectSignals(List<WatchlistAnalysis> watchRows) {
         boolean enabled = config.getBoolean("polymarket.enabled", false);
         if (!enabled) {
@@ -129,6 +144,11 @@ public final class PolymarketService {
         return new PolymarketSignalReport(true, status, signals);
     }
 
+/**
+ * 方法说明：ruleImpact，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<PolymarketWatchImpact> ruleImpact(
             TopicConfig topic,
             MarketCandidate market,
@@ -183,6 +203,11 @@ public final class PolymarketService {
         return out;
     }
 
+/**
+ * 方法说明：llmImpact，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<PolymarketWatchImpact> llmImpact(
             TopicConfig topic,
             MarketCandidate market,
@@ -247,6 +272,11 @@ public final class PolymarketService {
         }
     }
 
+/**
+ * 方法说明：tryParseArray，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private JSONArray tryParseArray(String text) {
         if (text == null || text.trim().isEmpty()) {
             return null;
@@ -268,6 +298,11 @@ public final class PolymarketService {
         }
     }
 
+/**
+ * 方法说明：fetchOpenInterest，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private OiSnapshot fetchOpenInterest(String dataBase, String conditionId, int timeoutSec) {
         if (conditionId == null || conditionId.trim().isEmpty()) {
             return OiSnapshot.empty();
@@ -291,6 +326,11 @@ public final class PolymarketService {
         return OiSnapshot.empty();
     }
 
+/**
+ * 方法说明：parseOi，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private OiSnapshot parseOi(String body) {
         if (body == null || body.trim().isEmpty()) {
             return OiSnapshot.empty();
@@ -321,6 +361,11 @@ public final class PolymarketService {
         }
     }
 
+/**
+ * 方法说明：parseOiObject，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private OiSnapshot parseOiObject(JSONObject obj) {
         if (obj == null) {
             return OiSnapshot.empty();
@@ -338,6 +383,11 @@ public final class PolymarketService {
         return new OiSnapshot(oi, oiChange);
     }
 
+/**
+ * 方法说明：parseMarkets，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<MarketCandidate> parseMarkets(String body, String keyword) {
         if (body == null || body.trim().isEmpty()) {
             return List.of();
@@ -409,6 +459,11 @@ public final class PolymarketService {
         return out;
     }
 
+/**
+ * 方法说明：parseTags，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<String> parseTags(JSONObject item) {
         JSONArray tagArr = item.optJSONArray("tags");
         if (tagArr == null || tagArr.length() == 0) {
@@ -433,6 +488,11 @@ public final class PolymarketService {
         return tags;
     }
 
+/**
+ * 方法说明：parseProbability，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double parseProbability(JSONObject item) {
         double prob = firstFinite(
                 item.optDouble("probability", Double.NaN),
@@ -458,6 +518,11 @@ public final class PolymarketService {
         return prob;
     }
 
+/**
+ * 方法说明：parseChange24h，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double parseChange24h(JSONObject item) {
         double change = firstFinite(
                 item.optDouble("priceChange24h", Double.NaN),
@@ -474,6 +539,11 @@ public final class PolymarketService {
         return change;
     }
 
+/**
+ * 方法说明：classifyTopic，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private TopicConfig classifyTopic(MarketCandidate market, List<TopicConfig> topics) {
         if (topics == null || topics.isEmpty()) {
             return null;
@@ -497,6 +567,11 @@ public final class PolymarketService {
         return best;
     }
 
+/**
+ * 方法说明：loadTopicConfig，负责加载配置或数据。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<TopicConfig> loadTopicConfig() {
         String override = safe(config.getString("polymarket.topic_map_path", ""));
         try {
@@ -543,6 +618,11 @@ public final class PolymarketService {
         }
     }
 
+/**
+ * 方法说明：toLowerList，负责转换数据结构用于后续处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<String> toLowerList(JSONArray arr) {
         if (arr == null || arr.length() == 0) {
             return List.of();
@@ -557,6 +637,11 @@ public final class PolymarketService {
         return out;
     }
 
+/**
+ * 方法说明：directionFromDelta，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String directionFromDelta(double change) {
         if (!Double.isFinite(change)) {
             return "-";
@@ -570,6 +655,11 @@ public final class PolymarketService {
         return "FLAT";
     }
 
+/**
+ * 方法说明：matchAny，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean matchAny(String text, List<String> keywords) {
         if (text == null || text.isEmpty() || keywords == null || keywords.isEmpty()) {
             return false;
@@ -583,10 +673,20 @@ public final class PolymarketService {
         return false;
     }
 
+/**
+ * 方法说明：safe，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String safe(String text) {
         return text == null ? "" : text.trim();
     }
 
+/**
+ * 方法说明：safeError，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String safeError(Exception e) {
         String msg = e == null ? "" : e.getMessage();
         if (msg == null || msg.trim().isEmpty()) {
@@ -595,6 +695,11 @@ public final class PolymarketService {
         return msg.trim();
     }
 
+/**
+ * 方法说明：firstNonEmpty，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String firstNonEmpty(String... values) {
         if (values == null) {
             return "";
@@ -608,6 +713,11 @@ public final class PolymarketService {
         return "";
     }
 
+/**
+ * 方法说明：firstFinite，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double firstFinite(double... values) {
         if (values == null) {
             return Double.NaN;
@@ -650,6 +760,11 @@ public final class PolymarketService {
             this.keyword = keyword == null ? "" : keyword;
         }
 
+/**
+ * 方法说明：rankScore，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         private double rankScore() {
             double volPart = Math.log10(1.0 + volume);
             double changePart = Math.abs(change24hPct) / 10.0;
@@ -681,6 +796,11 @@ public final class PolymarketService {
             this.hurtWatchKeywords = hurtWatchKeywords == null ? List.of() : List.copyOf(hurtWatchKeywords);
         }
 
+/**
+ * 方法说明：allIndustries，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         private List<String> allIndustries() {
             LinkedHashSet<String> merged = new LinkedHashSet<>();
             for (String item : benefitIndustries) {
@@ -709,10 +829,20 @@ public final class PolymarketService {
             this.change24h = change24h;
         }
 
+/**
+ * 方法说明：hasValue，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         private boolean hasValue() {
             return Double.isFinite(value);
         }
 
+/**
+ * 方法说明：empty，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         private static OiSnapshot empty() {
             return new OiSnapshot(Double.NaN, Double.NaN);
         }

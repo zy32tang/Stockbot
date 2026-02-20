@@ -5,6 +5,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 模块说明：Diagnostics（class）。
+ * 主要职责：承载 diagnostics 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class Diagnostics {
     public final long runId;
     public final String runMode;
@@ -21,11 +26,21 @@ public final class Diagnostics {
     public String coverageSource = "";
     public String coverageOwner = "";
 
+/**
+ * 方法说明：Diagnostics，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Diagnostics(long runId, String runMode) {
         this.runId = runId;
         this.runMode = runMode == null ? "" : runMode;
     }
 
+/**
+ * 方法说明：addConfig，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void addConfig(String key, String value, String source) {
         if (key == null || key.trim().isEmpty()) {
             return;
@@ -33,6 +48,11 @@ public final class Diagnostics {
         configSnapshot.put(key, new ConfigItem(key, value, source));
     }
 
+/**
+ * 方法说明：addDataSourceStat，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void addDataSourceStat(String key, int count) {
         if (key == null || key.trim().isEmpty()) {
             return;
@@ -40,6 +60,11 @@ public final class Diagnostics {
         dataSourceStats.put(key, Math.max(0, count));
     }
 
+/**
+ * 方法说明：addCoverage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void addCoverage(String key, int numerator, int denominator, String source, String owner) {
         if (key == null || key.trim().isEmpty()) {
             return;
@@ -47,6 +72,11 @@ public final class Diagnostics {
         coverages.put(key, new CoverageMetric(key, numerator, denominator, source, owner));
     }
 
+/**
+ * 方法说明：selectCoverage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void selectCoverage(
             String scope,
             String fetchCoverageKey,
@@ -61,6 +91,11 @@ public final class Diagnostics {
         this.coverageOwner = owner == null ? "" : owner;
     }
 
+/**
+ * 方法说明：addFeatureStatus，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void addFeatureStatus(String key, FeatureResolution status) {
         if (key == null || key.trim().isEmpty() || status == null) {
             return;
@@ -68,6 +103,11 @@ public final class Diagnostics {
         featureStatuses.put(key, status);
     }
 
+/**
+ * 方法说明：addTop5Gate，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void addTop5Gate(
             String gate,
             boolean passed,
@@ -80,6 +120,11 @@ public final class Diagnostics {
         top5Gates.add(new GateTrace(gate, passed, failCount, threshold, causeCode, owner, details));
     }
 
+/**
+ * 方法说明：addNote，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void addNote(String note) {
         if (note == null || note.trim().isEmpty()) {
             return;
@@ -87,6 +132,11 @@ public final class Diagnostics {
         notes.add(note.trim());
     }
 
+/**
+ * 方法说明：feature，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public FeatureResolution feature(String key) {
         if (key == null) {
             return null;
@@ -94,10 +144,20 @@ public final class Diagnostics {
         return featureStatuses.get(key);
     }
 
+/**
+ * 方法说明：selectedFetchCoverage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public CoverageMetric selectedFetchCoverage() {
         return coverages.get(selectedFetchCoverageKey);
     }
 
+/**
+ * 方法说明：selectedIndicatorCoverage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public CoverageMetric selectedIndicatorCoverage() {
         return coverages.get(selectedIndicatorCoverageKey);
     }

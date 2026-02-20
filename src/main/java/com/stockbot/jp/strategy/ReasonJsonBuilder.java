@@ -7,8 +7,18 @@ import com.stockbot.jp.model.ScoreResult;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+/**
+ * 模块说明：ReasonJsonBuilder（class）。
+ * 主要职责：承载 strategy 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class ReasonJsonBuilder {
 
+/**
+ * 方法说明：buildReasonsJson，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String buildReasonsJson(FilterDecision filter, RiskDecision risk, ScoreResult score) {
         JSONObject root = new JSONObject();
         root.put("filter_passed", filter.passed);
@@ -20,6 +30,11 @@ public final class ReasonJsonBuilder {
         return root.toString();
     }
 
+/**
+ * 方法说明：buildIndicatorsJson，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String buildIndicatorsJson(IndicatorSnapshot ind) {
         JSONObject root = new JSONObject();
         root.put("last_close", round4(ind.lastClose));
@@ -49,6 +64,11 @@ public final class ReasonJsonBuilder {
         return root.toString();
     }
 
+/**
+ * 方法说明：round4，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double round4(double value) {
         return Math.round(value * 10000.0) / 10000.0;
     }

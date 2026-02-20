@@ -9,8 +9,18 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
+/**
+ * 模块说明：MigrationRunner（class）。
+ * 主要职责：承载 db 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class MigrationRunner {
 
+/**
+ * 方法说明：run，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void run(Database database) throws SQLException {
         try (Connection conn = database.connect(); Statement st = conn.createStatement()) {
             st.executeUpdate("CREATE TABLE IF NOT EXISTS metadata (" +
@@ -111,6 +121,11 @@ public final class MigrationRunner {
         }
     }
 
+/**
+ * 方法说明：migrateLegacy，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void migrateLegacy(Connection conn) throws SQLException {
         ensureColumn(conn, "runs", "mode", "TEXT DEFAULT 'DAILY'");
         ensureColumn(conn, "runs", "started_at", "TEXT");
@@ -152,6 +167,11 @@ public final class MigrationRunner {
         exec(conn, "UPDATE runs SET status='SUCCESS' WHERE status IS NULL OR status=''");
     }
 
+/**
+ * 方法说明：ensureColumn，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void ensureColumn(Connection conn, String table, String column, String definition) throws SQLException {
         Set<String> columns = getColumns(conn, table);
         if (columns.contains(column.toLowerCase(Locale.ROOT))) {
@@ -160,6 +180,11 @@ public final class MigrationRunner {
         exec(conn, "ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
     }
 
+/**
+ * 方法说明：getColumns，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Set<String> getColumns(Connection conn, String table) throws SQLException {
         Set<String> out = new HashSet<>();
         try (PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(" + table + ")");
@@ -174,6 +199,11 @@ public final class MigrationRunner {
         return out;
     }
 
+/**
+ * 方法说明：exec，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void exec(Connection conn, String sql) throws SQLException {
         try (Statement st = conn.createStatement()) {
             st.executeUpdate(sql);

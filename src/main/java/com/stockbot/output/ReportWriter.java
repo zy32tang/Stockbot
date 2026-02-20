@@ -25,11 +25,21 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * 模块说明：ReportWriter（class）。
+ * 主要职责：承载 output 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public class ReportWriter {
 
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
     private static final DateTimeFormatter DISPLAY_TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
+/**
+ * 方法说明：writeTxt，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Path writeTxt(RunContext rc, List<StockContext> stocks, Map<String, Long> timers, String backtestSummary) throws Exception {
         Path dir = rc.outputsDir.resolve("reports");
         Files.createDirectories(dir);
@@ -94,6 +104,11 @@ public class ReportWriter {
         return out;
     }
 
+/**
+ * 方法说明：writePng，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Path writePng(RunContext rc, List<StockContext> stocks) throws Exception {
         Path dir = rc.outputsDir.resolve("reports");
         Files.createDirectories(dir);
@@ -147,6 +162,11 @@ public class ReportWriter {
         return out;
     }
 
+/**
+ * 方法说明：writeTrendCharts，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<Path> writeTrendCharts(RunContext rc, List<StockContext> stocks) throws Exception {
         List<Path> out = new ArrayList<>();
         Path dir = rc.outputsDir.resolve("reports").resolve("trends");
@@ -160,6 +180,11 @@ public class ReportWriter {
         return out;
     }
 
+/**
+ * 方法说明：buildEmailHtml，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String buildEmailHtml(RunContext rc, List<StockContext> stocks, String backtestSummary, Map<String, Long> timers) {
         List<StockContext> ranked = ranked(stocks);
         ScoringEngine se = new ScoringEngine();
@@ -248,6 +273,11 @@ public class ReportWriter {
         return sb.toString();
     }
 
+/**
+ * 方法说明：writeTrendChart，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Path writeTrendChart(Path dir, String ts, StockContext sc) throws Exception {
         List<DailyPrice> prices = sc.priceHistory;
         List<Double> ma20 = movingAverage(prices, 20);
@@ -350,6 +380,11 @@ public class ReportWriter {
         return out;
     }
 
+/**
+ * 方法说明：drawSeries，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static void drawSeries(Graphics2D g, List<DailyPrice> prices, List<Double> ma20, List<Double> ma60,
                                    int left, int top, int pw, int ph, double yMin, double yMax) {
         Path2D pricePath = new Path2D.Double();
@@ -402,6 +437,11 @@ public class ReportWriter {
         g.draw(ma60Path);
     }
 
+/**
+ * 方法说明：drawLegendLine，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static void drawLegendLine(Graphics2D g, int x, int y, Color color, String text) {
         Stroke old = g.getStroke();
         g.setColor(color);
@@ -414,6 +454,11 @@ public class ReportWriter {
         g.drawString(text, x + 72, y + 8);
     }
 
+/**
+ * 方法说明：drawLegendDashed，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static void drawLegendDashed(Graphics2D g, int x, int y, Color color, String text) {
         Stroke old = g.getStroke();
         g.setColor(color);
@@ -426,6 +471,11 @@ public class ReportWriter {
         g.drawString(text, x + 72, y + 8);
     }
 
+/**
+ * 方法说明：movingAverage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static List<Double> movingAverage(List<DailyPrice> prices, int window) {
         List<Double> out = new ArrayList<>(prices.size());
         double sum = 0.0;
@@ -438,6 +488,11 @@ public class ReportWriter {
         return out;
     }
 
+/**
+ * 方法说明：valueRange，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static double[] valueRange(List<DailyPrice> prices, List<Double> ma20, List<Double> ma60,
                                        double buyLower, double buyUpper, double defense) {
         double min = Double.POSITIVE_INFINITY;
@@ -466,17 +521,32 @@ public class ReportWriter {
         return new double[]{min - pad, max + pad};
     }
 
+/**
+ * 方法说明：toX，负责转换数据结构用于后续处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static int toX(int index, int size, int left, int width) {
         if (size <= 1) return left;
         return left + (int) Math.round(index * 1.0 / (size - 1) * width);
     }
 
+/**
+ * 方法说明：toY，负责转换数据结构用于后续处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static int toY(double value, double min, double max, int top, int height) {
         if (max <= min) return top + height / 2;
         double ratio = (value - min) / (max - min);
         return top + height - (int) Math.round(ratio * height);
     }
 
+/**
+ * 方法说明：latestFinite，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static double latestFinite(List<Double> vals, double fallback) {
         for (int i = vals.size() - 1; i >= 0; i--) {
             if (Double.isFinite(vals.get(i))) return vals.get(i);
@@ -484,10 +554,20 @@ public class ReportWriter {
         return fallback;
     }
 
+/**
+ * 方法说明：round2，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static double round2(double v) {
         return Math.round(v * 100.0) / 100.0;
     }
 
+/**
+ * 方法说明：trimText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String trimText(String s, int max) {
         if (s == null) return "";
         String t = s.trim();
@@ -495,33 +575,63 @@ public class ReportWriter {
         return t.substring(0, max) + "...";
     }
 
+/**
+ * 方法说明：fmt，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String fmt(Double v) {
         if (v == null) return "-";
         return String.format(Locale.US, "%.2f", v);
     }
 
+/**
+ * 方法说明：html，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String html(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
+/**
+ * 方法说明：ranked，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static List<StockContext> ranked(List<StockContext> stocks) {
         List<StockContext> out = new ArrayList<>(stocks);
         out.sort(Comparator.comparing((StockContext sc) -> sc.totalScore == null ? -999.0 : sc.totalScore).reversed());
         return out;
     }
 
+/**
+ * 方法说明：displayName，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String displayName(StockContext sc) {
         if (sc.displayName == null || sc.displayName.trim().isEmpty()) return sc.ticker;
         return sc.displayName;
     }
 
+/**
+ * 方法说明：actionText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String actionText(StockContext sc) {
         if ("ATTACK".equalsIgnoreCase(sc.rating)) return "进攻";
         if ("DEFEND".equalsIgnoreCase(sc.rating)) return "防守";
         return "观察";
     }
 
+/**
+ * 方法说明：ratingText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String ratingText(String rating) {
         if (rating == null || rating.trim().isEmpty()) return "-";
         if ("ATTACK".equalsIgnoreCase(rating)) return "进攻";
@@ -530,6 +640,11 @@ public class ReportWriter {
         return rating;
     }
 
+/**
+ * 方法说明：riskText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String riskText(String risk) {
         if (risk == null || risk.trim().isEmpty()) return "-";
         if ("NONE".equalsIgnoreCase(risk)) return "无";
@@ -537,6 +652,11 @@ public class ReportWriter {
         return risk;
     }
 
+/**
+ * 方法说明：gateText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String gateText(String gateReason) {
         if (gateReason == null || gateReason.trim().isEmpty()) return "-";
         if ("not triggered".equalsIgnoreCase(gateReason.trim())) return "未触发";
@@ -547,6 +667,11 @@ public class ReportWriter {
         return text.trim();
     }
 
+/**
+ * 方法说明：runModeText，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String runModeText(String runMode) {
         if (runMode == null) return "-";
         if ("manual".equalsIgnoreCase(runMode)) return "手动";
@@ -554,6 +679,11 @@ public class ReportWriter {
         return runMode;
     }
 
+/**
+ * 方法说明：factorsText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String factorsText(Map<String, Double> factorScores) {
         if (factorScores == null || factorScores.isEmpty()) return "{}";
         StringBuilder sb = new StringBuilder("{");
@@ -567,6 +697,11 @@ public class ReportWriter {
         return sb.toString();
     }
 
+/**
+ * 方法说明：factorNameText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String factorNameText(String factor) {
         if (factor == null || factor.trim().isEmpty()) return "-";
         if ("fundamental".equalsIgnoreCase(factor)) return "基本面";
@@ -576,6 +711,11 @@ public class ReportWriter {
         return factor;
     }
 
+/**
+ * 方法说明：timerLabel，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String timerLabel(String step) {
         if (step == null || step.trim().isEmpty()) return "-";
         if ("TOTAL".equalsIgnoreCase(step)) return "总耗时";

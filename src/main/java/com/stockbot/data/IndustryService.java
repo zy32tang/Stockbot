@@ -13,6 +13,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 模块说明：IndustryService（class）。
+ * 主要职责：承载 data 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public class IndustryService {
     private static final String UNKNOWN = "Unknown";
 
@@ -24,16 +29,31 @@ public class IndustryService {
 
     private volatile boolean quoteSummaryEnabled = true;
 
+/**
+ * 方法说明：IndustryService，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public IndustryService() {
         this(new HttpClientEx());
     }
 
+/**
+ * 方法说明：IndustryService，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public IndustryService(HttpClientEx http) {
         this.http = http;
         seedFallbacks();
         seedIndustryZh();
     }
 
+/**
+ * 方法说明：industryOf，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String industryOf(String ticker) {
         String key = normalizeTicker(ticker);
         Profile profile = profileOf(key);
@@ -43,10 +63,20 @@ public class IndustryService {
         return isBlank(fallback) ? UNKNOWN : fallback;
     }
 
+/**
+ * 方法说明：industryZhOf，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String industryZhOf(String ticker) {
         return industryZh(industryOf(ticker));
     }
 
+/**
+ * 方法说明：companyNameOf，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String companyNameOf(String ticker) {
         String key = normalizeTicker(ticker);
         Profile profile = profileOf(key);
@@ -57,6 +87,11 @@ public class IndustryService {
         return key;
     }
 
+/**
+ * 方法说明：industryZh，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String industryZh(String industryEn) {
         if (isBlank(industryEn)) return "未知";
         String zh = industryZhMap.get(industryEn.trim().toLowerCase(Locale.ROOT));
@@ -64,6 +99,11 @@ public class IndustryService {
         return "未知";
     }
 
+/**
+ * 方法说明：displayNameOf，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String displayNameOf(String ticker) {
         String key = normalizeTicker(ticker);
         String name = companyNameOf(key);
@@ -73,6 +113,11 @@ public class IndustryService {
         return nameAndTicker + " (" + industryZh + "/" + industryEn + ")";
     }
 
+/**
+ * 方法说明：scoreIndustryTrend，负责计算评分并输出分值。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public double scoreIndustryTrend(String ticker, String industry, List<DailyPrice> history, Double pctChange) {
         double score = scoreIndustryTrend(industry);
 
@@ -84,6 +129,11 @@ public class IndustryService {
         return clamp(score, 0.0, 100.0);
     }
 
+/**
+ * 方法说明：scoreIndustryTrend，负责计算评分并输出分值。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public double scoreIndustryTrend(String industry) {
         if (isBlank(industry)) return 50.0;
         String text = industry.toLowerCase(Locale.ROOT);
@@ -95,11 +145,21 @@ public class IndustryService {
         return 50.0;
     }
 
+/**
+ * 方法说明：profileOf，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Profile profileOf(String ticker) {
         if (isBlank(ticker)) return Profile.EMPTY;
         return profileCache.computeIfAbsent(ticker, this::fetchProfileSafe);
     }
 
+/**
+ * 方法说明：fetchProfileSafe，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Profile fetchProfileSafe(String ticker) {
         try {
             return fetchProfile(ticker);
@@ -108,6 +168,11 @@ public class IndustryService {
         }
     }
 
+/**
+ * 方法说明：fetchProfile，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Profile fetchProfile(String ticker) {
         Profile profile = fetchFromChart(ticker);
 
@@ -134,6 +199,11 @@ public class IndustryService {
         return profile;
     }
 
+/**
+ * 方法说明：fetchFromChart，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Profile fetchFromChart(String ticker) {
         try {
             String encoded = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
@@ -161,6 +231,11 @@ public class IndustryService {
         }
     }
 
+/**
+ * 方法说明：fetchFromQuoteSummary，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Profile fetchFromQuoteSummary(String ticker) throws Exception {
         String encoded = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
         String quoteSummaryUrl = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/" + encoded
@@ -190,6 +265,11 @@ public class IndustryService {
         return new Profile(clean(companyName), clean(industry));
     }
 
+/**
+ * 方法说明：merge，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Profile merge(Profile base, Profile override) {
         if (base == null) base = Profile.EMPTY;
         if (override == null) override = Profile.EMPTY;
@@ -199,6 +279,11 @@ public class IndustryService {
         return new Profile(name, industry);
     }
 
+/**
+ * 方法说明：inferIndustry，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String inferIndustry(String name, String instrumentType, String ticker) {
         String t = normalizeTicker(ticker);
         String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
@@ -219,6 +304,11 @@ public class IndustryService {
         return UNKNOWN;
     }
 
+/**
+ * 方法说明：seedFallbacks，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void seedFallbacks() {
         fallbackIndustryMap.put("7974.T", "Gaming");
         fallbackIndustryMap.put("8035.T", "Semiconductor");
@@ -239,6 +329,11 @@ public class IndustryService {
         fallbackCompanyNameMap.put("1540.T", "Japan Physical Gold ETF");
     }
 
+/**
+ * 方法说明：seedIndustryZh，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void seedIndustryZh() {
         putIndustryZh("gaming", "游戏");
         putIndustryZh("semiconductor", "半导体");
@@ -268,10 +363,20 @@ public class IndustryService {
         putIndustryZh("unknown", "未知");
     }
 
+/**
+ * 方法说明：putIndustryZh，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void putIndustryZh(String en, String zh) {
         industryZhMap.put(en.trim().toLowerCase(Locale.ROOT), zh);
     }
 
+/**
+ * 方法说明：trendFromHistory，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Double trendFromHistory(List<DailyPrice> history, int shortWindow, int longWindow) {
         if (history == null || history.size() < longWindow) return null;
         Double maShort = movingAverage(history, shortWindow);
@@ -280,6 +385,11 @@ public class IndustryService {
         return (maShort - maLong) / maLong;
     }
 
+/**
+ * 方法说明：movingAverage，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Double movingAverage(List<DailyPrice> history, int window) {
         if (history == null || history.size() < window || window <= 0) return null;
         double sum = 0.0;
@@ -289,27 +399,52 @@ public class IndustryService {
         return sum / window;
     }
 
+/**
+ * 方法说明：clamp，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static double clamp(double value, double min, double max) {
         if (value < min) return min;
         if (value > max) return max;
         return value;
     }
 
+/**
+ * 方法说明：normalizeTicker，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String normalizeTicker(String ticker) {
         if (ticker == null) return "";
         return ticker.trim().toUpperCase(Locale.ROOT);
     }
 
+/**
+ * 方法说明：clean，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String clean(String s) {
         if (s == null) return null;
         String out = s.trim();
         return out.isEmpty() ? null : out;
     }
 
+/**
+ * 方法说明：isBlank，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static boolean isBlank(String s) {
         return s == null || s.trim().isEmpty();
     }
 
+/**
+ * 方法说明：firstNonBlank，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String firstNonBlank(String... values) {
         if (values == null) return null;
         for (String v : values) {

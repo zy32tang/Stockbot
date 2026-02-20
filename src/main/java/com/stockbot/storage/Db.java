@@ -4,15 +4,30 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.*;
 
+/**
+ * 模块说明：Db（class）。
+ * 主要职责：承载 storage 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public class Db {
     private final String url;
 
+/**
+ * 方法说明：Db，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Db(Path dbPath) throws Exception {
         Files.createDirectories(dbPath.getParent());
         this.url = "jdbc:sqlite:" + dbPath.toAbsolutePath();
         init();
     }
 
+/**
+ * 方法说明：connect，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Connection connect() throws SQLException {
         Connection c = DriverManager.getConnection(url);
         try (Statement st = c.createStatement()) {
@@ -21,6 +36,11 @@ public class Db {
         return c;
     }
 
+/**
+ * 方法说明：init，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void init() throws Exception {
         try (Connection c = connect();
              Statement st = c.createStatement()) {
@@ -56,6 +76,11 @@ public class Db {
         }
     }
 
+/**
+ * 方法说明：insertRun，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public long insertRun(String runAt, String runMode, String label, int aiTargets, String notes) throws Exception {
         try (Connection c = connect()) {
             PreparedStatement ps = c.prepareStatement(
@@ -74,6 +99,11 @@ public class Db {
         return -1;
     }
 
+/**
+ * 方法说明：insertResult，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void insertResult(long runId, com.stockbot.model.StockContext sc) throws Exception {
         try (Connection c = connect()) {
             PreparedStatement ps = c.prepareStatement(
@@ -101,6 +131,11 @@ public class Db {
         }
     }
 
+/**
+ * 方法说明：simpleBacktestSummary，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String simpleBacktestSummary(int daysLookback) throws Exception {
         // 简化回测：统计最近 N 天内高风险标记出现次数
         try (Connection c = connect()) {

@@ -15,13 +15,28 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 模块说明：ScanResultDao（class）。
+ * 主要职责：承载 db 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class ScanResultDao {
     private final Database database;
 
+/**
+ * 方法说明：ScanResultDao，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public ScanResultDao(Database database) {
         this.database = database;
     }
 
+/**
+ * 方法说明：insertBatch，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public void insertBatch(long runId, List<TickerScanResult> results) throws SQLException {
         if (runId <= 0 || results == null || results.isEmpty()) {
             return;
@@ -66,6 +81,11 @@ public final class ScanResultDao {
         }
     }
 
+/**
+ * 方法说明：summarizeByRun，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public ScanResultSummary summarizeByRun(long runId) throws SQLException {
         Map<ScanFailureReason, Integer> failureCounts = new EnumMap<>(ScanFailureReason.class);
         for (ScanFailureReason reason : ScanFailureReason.values()) {
@@ -148,6 +168,11 @@ public final class ScanResultDao {
         return new ScanResultSummary(total, fetchCoverage, indicatorCoverage, failureCounts, requestFailureCounts, insufficientCounts);
     }
 
+/**
+ * 方法说明：dataSourceCountsByRun，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Map<String, Integer> dataSourceCountsByRun(long runId) throws SQLException {
         Map<String, Integer> out = new LinkedHashMap<>();
         out.put("yahoo", 0);
@@ -174,6 +199,11 @@ public final class ScanResultDao {
         return Map.copyOf(out);
     }
 
+/**
+ * 方法说明：mapRequestCategory，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private ScanFailureReason mapRequestCategory(String rawCategory) {
         String category = rawCategory == null ? "" : rawCategory.trim().toLowerCase();
         if ("timeout".equals(category)) {

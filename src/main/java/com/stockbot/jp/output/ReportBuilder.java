@@ -39,6 +39,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 模块说明：ReportBuilder（class）。
+ * 主要职责：承载 output 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class ReportBuilder {
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
     private static final DateTimeFormatter DISPLAY_TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -52,6 +57,11 @@ public final class ReportBuilder {
     private final Config config;
     private final TradePlanBuilder tradePlanBuilder;
 
+/**
+ * 方法说明：ReportBuilder，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public ReportBuilder(Config config) {
         this.config = config;
         this.tradePlanBuilder = new TradePlanBuilder(config);
@@ -68,6 +78,11 @@ public final class ReportBuilder {
         HIGH
     }
 
+/**
+ * 方法说明：detectRunType，负责检测条件并输出判断结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static RunType detectRunType(Instant startedAt, ZoneId zoneId) {
         if (startedAt == null || zoneId == null) {
             return RunType.CLOSE;
@@ -75,6 +90,11 @@ public final class ReportBuilder {
         return startedAt.atZone(zoneId).toLocalTime().isBefore(CLOSE_TIME) ? RunType.INTRADAY : RunType.CLOSE;
     }
 
+/**
+ * 方法说明：writeDailyReport，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Path writeDailyReport(
             Path reportDir,
             Instant startedAt,
@@ -132,6 +152,11 @@ public final class ReportBuilder {
         return report;
     }
 
+/**
+ * 方法说明：buildHtml，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String buildHtml(
             Instant startedAt,
             ZoneId zoneId,
@@ -237,6 +262,11 @@ public final class ReportBuilder {
         return sb.toString();
     }
 
+/**
+ * 方法说明：buildMailText，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String buildMailText(
             Instant startedAt,
             ZoneId zoneId,
@@ -254,6 +284,11 @@ public final class ReportBuilder {
                 DISPLAY_TS.format(startedAt.atZone(zoneId)), coverage, candidateSize, topN);
     }
 
+/**
+ * 方法说明：appendPageHeader，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendPageHeader(StringBuilder sb) {
         sb.append("<!doctype html><html><head><meta charset='UTF-8'><style>");
         sb.append("body{margin:0;background:#eef4f8;color:#12263a;font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;}");
@@ -272,6 +307,11 @@ public final class ReportBuilder {
         sb.append("</style></head><body><div class='wrap'>");
     }
 
+/**
+ * 方法说明：appendTopHeader，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendTopHeader(
             StringBuilder sb,
             Instant startedAt,
@@ -336,6 +376,11 @@ public final class ReportBuilder {
         }
     }
 
+/**
+ * 方法说明：appendSystemStatus，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendSystemStatus(StringBuilder sb, ScanResultSummary summary, Diagnostics diagnostics) {
         sb.append("<h2>B. 系统状态说明</h2>");
         sb.append("<div class='small'>");
@@ -380,6 +425,11 @@ public final class ReportBuilder {
         sb.append("</div>");
     }
 
+/**
+ * 方法说明：appendActionAdvice，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendActionAdvice(StringBuilder sb, ActionAdvice advice, double singleMaxPct, double totalMaxPct) {
         sb.append("<h2>C. 今日行动建议（总览）</h2>");
         sb.append("<div class='card'>");
@@ -390,6 +440,11 @@ public final class ReportBuilder {
         sb.append("</div>");
     }
 
+/**
+ * 方法说明：appendWatchTable，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendWatchTable(StringBuilder sb, List<WatchlistAnalysis> watchRows, boolean isClose) {
         sb.append("<h2>D. 自选股跟踪（精简表格）</h2>");
         sb.append("<table><tr><th>代码+名称</th><th>最新价</th><th>综合分(0-100)</th><th>风险等级</th><th>信号状态</th><th>")
@@ -438,6 +493,11 @@ public final class ReportBuilder {
         sb.append("<div class='small' style='margin-top:8px;'>说明：SMA/RSI/ATR/BB% 等原始指标不在正文展示。</div>");
     }
 
+/**
+ * 方法说明：appendWatchAiSummary，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendWatchAiSummary(StringBuilder sb, List<WatchlistAnalysis> watchRows) {
         if (watchRows.isEmpty()) return;
         sb.append("<div class='card'><h3 style='margin-top:0;'>AI 鏂伴椈鎽樿锛堟渶澶?琛岋級</h3>");
@@ -450,6 +510,11 @@ public final class ReportBuilder {
         }
         sb.append("</div>");
     }
+/**
+ * 方法说明：appendTopCards，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendTopCards(StringBuilder sb, CandidateSelection topSelection, boolean isClose, boolean hideEntryInIntraday, Diagnostics diagnostics) {
         sb.append("<h2>E. 今日 Top 5 候选</h2>");
         appendTopFunnel(sb, topSelection.funnel, topSelection.skipReason, diagnostics);
@@ -505,6 +570,11 @@ public final class ReportBuilder {
         }
     }
 
+/**
+ * 方法说明：appendTopFunnel，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendTopFunnel(StringBuilder sb, TopFunnel funnel, String skipReason, Diagnostics diagnostics) {
         sb.append("<div class='card'><h3 style='margin-top:0;'>Top5 漏斗统计</h3><div class='small'>");
         sb.append("candidates_from_market_scan=").append(funnel.candidatesFromMarketScan).append(" | ");
@@ -538,6 +608,11 @@ public final class ReportBuilder {
         sb.append("</div>");
     }
 
+/**
+ * 方法说明：appendPolymarketSignals，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendPolymarketSignals(StringBuilder sb, PolymarketSignalReport report, Diagnostics diagnostics) {
         sb.append("<h2>F. Polymarket Signals</h2>");
         FeatureResolution polymarketFeature = diagnostics == null ? null : diagnostics.feature("polymarket");
@@ -585,6 +660,11 @@ public final class ReportBuilder {
         }
     }
 
+/**
+ * 方法说明：appendDisclaimer，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendDisclaimer(StringBuilder sb) {
         sb.append("<h2>G. 风险提示与免责声明</h2><div class='disclaimer'>");
         sb.append("1) 本报告仅用于学习和研究，不构成投资建议。<br>");
@@ -595,6 +675,11 @@ public final class ReportBuilder {
         sb.append("</div>");
     }
 
+/**
+ * 方法说明：appendDiagnostics，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendDiagnostics(StringBuilder sb, Diagnostics diagnostics) {
         if (diagnostics == null) {
             return;
@@ -663,6 +748,11 @@ public final class ReportBuilder {
         sb.append("</div></details>");
     }
 
+/**
+ * 方法说明：buildDebugJson，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String buildDebugJson(
             Instant startedAt,
             ZoneId zoneId,
@@ -757,6 +847,11 @@ public final class ReportBuilder {
         return root.toString(2);
     }
 
+/**
+ * 方法说明：coverageToJson，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private JSONObject coverageToJson(Diagnostics.CoverageMetric metric) {
         JSONObject json = new JSONObject();
         if (metric == null) {
@@ -775,6 +870,11 @@ public final class ReportBuilder {
         return json;
     }
 
+/**
+ * 方法说明：appendWatchWhy，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void appendWatchWhy(StringBuilder sb, DisplayReason displayReason) {
         if (displayReason == null) {
             return;
@@ -786,6 +886,11 @@ public final class ReportBuilder {
                 .append("</div>");
     }
 
+/**
+ * 方法说明：resolveDisplayReason，负责解析规则并确定最终结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private DisplayReason resolveDisplayReason(WatchlistAnalysis row, JSONObject reasonRoot, Outcome<TradePlan> planOutcome) {
         JSONObject root = reasonRoot == null ? new JSONObject() : reasonRoot;
         String causeRaw = root.optString("cause_code", row.fetchSuccess ? CauseCode.NONE.name() : CauseCode.FETCH_FAILED.name());
@@ -825,6 +930,11 @@ public final class ReportBuilder {
         return new DisplayReason(category, message, causeCode.name(), owner, details);
     }
 
+/**
+ * 方法说明：filterReasonSummary，负责按规则过滤无效数据。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String filterReasonSummary(JSONObject reasonRoot) {
         if (reasonRoot == null) {
             return "rule_not_met";
@@ -849,6 +959,11 @@ public final class ReportBuilder {
         return String.join(", ", items);
     }
 
+/**
+ * 方法说明：toCauseCode，负责转换数据结构用于后续处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private CauseCode toCauseCode(String raw) {
         if (raw == null || raw.trim().isEmpty()) {
             return CauseCode.NONE;
@@ -859,6 +974,11 @@ public final class ReportBuilder {
             return CauseCode.NONE;
         }
     }
+/**
+ * 方法说明：renderFeatureStatus，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String renderFeatureStatus(String featureKey, FeatureResolution feature, ScanResultSummary summary) {
         if (feature == null) {
             return "<b>未启用</b>";
@@ -884,6 +1004,11 @@ public final class ReportBuilder {
         return "<b>未启用</b>（runtime_error=" + escape(blankTo(feature.runtimeExceptionClass, "unknown")) + "）";
     }
 
+/**
+ * 方法说明：renderFeatureStatusSimple，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String renderFeatureStatusSimple(String featureKey, FeatureResolution feature) {
         if (feature == null) {
             return "disabled (unknown)";
@@ -899,6 +1024,11 @@ public final class ReportBuilder {
         }
         return "disabled_runtime_error (" + blankTo(feature.runtimeExceptionClass, "unknown") + ")";
     }
+/**
+ * 方法说明：sortedWatch，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<WatchlistAnalysis> sortedWatch(List<WatchlistAnalysis> rows) {
         if (rows == null || rows.isEmpty()) return List.of();
         List<WatchlistAnalysis> out = new ArrayList<>(rows);
@@ -906,6 +1036,11 @@ public final class ReportBuilder {
         return out;
     }
 
+/**
+ * 方法说明：sortedMarket，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<ScoredCandidate> sortedMarket(List<ScoredCandidate> rows) {
         if (rows == null || rows.isEmpty()) return List.of();
         List<ScoredCandidate> out = new ArrayList<>(rows);
@@ -913,6 +1048,11 @@ public final class ReportBuilder {
         return out;
     }
 
+/**
+ * 方法说明：buildTopSelection，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private CandidateSelection buildTopSelection(
             List<ScoredCandidate> rows,
             RunType runType,
@@ -1055,6 +1195,11 @@ public final class ReportBuilder {
         return new CandidateSelection(cards, excluded, funnel, "");
     }
 
+/**
+ * 方法说明：parseIndicators，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private IndicatorData parseIndicators(String json, double fallbackClose) {
         JSONObject root = safeJson(json);
         double last = finitePositive(root.optDouble("last_close", Double.NaN), fallbackClose);
@@ -1075,6 +1220,11 @@ public final class ReportBuilder {
         return new IndicatorData(last, sma20, sma60, sma60Prev5, avgVol20, volRatio, atr14, lowLookback, highLookback);
     }
 
+/**
+ * 方法说明：assessRisk，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private RiskAssessment assessRisk(IndicatorData ind) {
         double minVol = config.getDouble("risk.minVolume", 50000.0);
         double volMax = config.getDouble("risk.volMax", 0.06);
@@ -1110,6 +1260,11 @@ public final class ReportBuilder {
         return new RiskAssessment(grade, tags, missing);
     }
 
+/**
+ * 方法说明：toTradePlanInput，负责转换数据结构用于后续处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private TradePlanBuilder.Input toTradePlanInput(IndicatorData ind) {
         return new TradePlanBuilder.Input(
                 ind.lastClose,
@@ -1119,6 +1274,11 @@ public final class ReportBuilder {
                 ind.atr14
         );
     }
+/**
+ * 方法说明：normalizeReasons，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<String> normalizeReasons(String reasonsJson, int maxItems) {
         JSONObject root = safeJson(reasonsJson);
         JSONArray arr = root.optJSONArray("filter_reasons");
@@ -1133,6 +1293,11 @@ public final class ReportBuilder {
         return new ArrayList<>(out);
     }
 
+/**
+ * 方法说明：aiSummaryLines，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<String> aiSummaryLines(WatchlistAnalysis row) {
         List<String> out = new ArrayList<>();
         String summary = blankTo(row.aiSummary, "").replace("\r", " ").replace("\n", " ").trim();
@@ -1148,6 +1313,11 @@ public final class ReportBuilder {
         return out;
     }
 
+/**
+ * 方法说明：actionAdvice，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private ActionAdvice actionAdvice(double fetchCoveragePct, double indicatorCoveragePct, int candidateCount, List<CandidateCard> cards) {
         double fetchLowPct = config.getDouble("report.advice.fetch_low_pct", 50.0);
         double indicatorLowPct = config.getDouble("report.advice.indicator_low_pct", 50.0);
@@ -1173,6 +1343,11 @@ public final class ReportBuilder {
         return new ActionAdvice("正常", "good", "覆盖率与候选数量均正常。");
     }
 
+/**
+ * 方法说明：countPriceSuspects，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private int countPriceSuspects(List<WatchlistAnalysis> rows) {
         int count = 0;
         if (rows == null) return 0;
@@ -1182,6 +1357,11 @@ public final class ReportBuilder {
         return count;
     }
 
+/**
+ * 方法说明：joinSuspectTickers，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String joinSuspectTickers(List<WatchlistAnalysis> rows) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
         if (rows != null) {
@@ -1195,18 +1375,33 @@ public final class ReportBuilder {
         return out.isEmpty() ? "-" : String.join(", ", out);
     }
 
+/**
+ * 方法说明：watchName，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String watchName(WatchlistAnalysis row) {
         String code = blankTo(row.code, "").toUpperCase(Locale.ROOT);
         String name = blankTo(row.companyNameLocal, blankTo(row.displayName, blankTo(row.ticker, "")));
         return code.isEmpty() ? name : (code + " " + name);
     }
 
+/**
+ * 方法说明：candidateName，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String candidateName(ScoredCandidate c) {
         String code = blankTo(c.code, "").toUpperCase(Locale.ROOT);
         String name = blankTo(c.name, blankTo(c.ticker, ""));
         return code.isEmpty() ? name : (code + " " + name);
     }
 
+/**
+ * 方法说明：isDerivative，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean isDerivative(ScoredCandidate c) {
         String text = (blankTo(c.name, "") + " " + blankTo(c.market, "") + " " + blankTo(c.code, "")).toUpperCase(Locale.ROOT);
         for (String kw : DERIVATIVE_KEYWORDS) {
@@ -1215,6 +1410,11 @@ public final class ReportBuilder {
         return false;
     }
 
+/**
+ * 方法说明：scoreTier，负责计算评分并输出分值。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String scoreTier(double score) {
         double focusThreshold = config.getDouble("report.score.tier.focus_threshold", 80.0);
         double observeThreshold = config.getDouble("report.score.tier.observe_threshold", 65.0);
@@ -1223,18 +1423,38 @@ public final class ReportBuilder {
         return "弱";
     }
 
+/**
+ * 方法说明：riskText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String riskText(RiskAssessment risk) {
         return risk.grade == RiskGrade.HIGH ? "高" : (risk.grade == RiskGrade.MID ? "中" : "低");
     }
 
+/**
+ * 方法说明：safeTickerKey，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String safeTickerKey(String ticker) {
         return blankTo(ticker, "").toLowerCase(Locale.ROOT);
     }
 
+/**
+ * 方法说明：tile，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String tile(String key, String value) {
         return "<div class='tile'><div class='k'>" + escape(key) + "</div><div class='v'>" + value + "</div></div>";
     }
 
+/**
+ * 方法说明：safeJson，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private JSONObject safeJson(String raw) {
         if (raw == null || raw.trim().isEmpty()) return new JSONObject();
         try {
@@ -1244,16 +1464,31 @@ public final class ReportBuilder {
         }
     }
 
+/**
+ * 方法说明：finitePositive，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double finitePositive(double first, double fallback) {
         if (Double.isFinite(first) && first > 0.0) return first;
         return (Double.isFinite(fallback) && fallback > 0.0) ? fallback : Double.NaN;
     }
 
+/**
+ * 方法说明：coveragePct，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double coveragePct(int universeSize, int scannedSize) {
         if (universeSize <= 0) return 0.0;
         return scannedSize * 100.0 / universeSize;
     }
 
+/**
+ * 方法说明：formatCoverage，负责格式化数据用于展示或传输。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String formatCoverage(Diagnostics.CoverageMetric metric) {
         if (metric == null) {
             return "-";
@@ -1261,10 +1496,20 @@ public final class ReportBuilder {
         return metric.numerator + " / " + metric.denominator + " (" + fmt1(metric.pct) + "%)";
     }
 
+/**
+ * 方法说明：round2，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
     }
 
+/**
+ * 方法说明：clamp，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double clamp(double value, double min, double max) {
         if (!Double.isFinite(value)) return min;
         if (value < min) return min;
@@ -1272,33 +1517,68 @@ public final class ReportBuilder {
         return value;
     }
 
+/**
+ * 方法说明：fmt1，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String fmt1(double value) {
         return Double.isFinite(value) ? String.format(Locale.US, "%.1f", value) : "-";
     }
 
+/**
+ * 方法说明：fmt2，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String fmt2(double value) {
         return Double.isFinite(value) ? String.format(Locale.US, "%.2f", value) : "-";
     }
 
+/**
+ * 方法说明：signed，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String signed(double value) {
         return Double.isFinite(value) ? String.format(Locale.US, "%+.2f", value) : "-";
     }
 
+/**
+ * 方法说明：trimText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String trimText(String text, int maxLen) {
         String t = blankTo(text, "");
         if (t.length() <= maxLen) return t;
         return t.substring(0, Math.max(0, maxLen - 3)) + "...";
     }
 
+/**
+ * 方法说明：blankTo，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String blankTo(String value, String fallback) {
         String t = value == null ? "" : value.trim();
         return t.isEmpty() ? fallback : t;
     }
 
+/**
+ * 方法说明：safe，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String safe(String value) {
         return value == null ? "" : value.trim();
     }
 
+/**
+ * 方法说明：escape，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String escape(String text) {
         if (text == null) return "";
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
@@ -1391,6 +1671,11 @@ public final class ReportBuilder {
             this.highLookback = highLookback;
         }
 
+/**
+ * 方法说明：hasRiskInputs，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
         private boolean hasRiskInputs() {
             return Double.isFinite(lastClose) && lastClose > 0.0
                     && Double.isFinite(avgVolume20)

@@ -66,7 +66,7 @@
 
 ### 3.1 DAILY
 
-- `--reset-batch`：仅删除 batch checkpoint 后退出
+- `--reset-batch`：删除 batch checkpoint 与背景扫描 startup trigger checkpoint 后退出
 - `--test`：基于最近市场扫描结果重建报告并强制发送测试邮件（不重跑全市场）
 - 其他：执行一次 `runScheduledMergeReport(...)`
 

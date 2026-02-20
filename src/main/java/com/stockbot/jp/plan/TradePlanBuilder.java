@@ -9,15 +9,30 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 模块说明：TradePlanBuilder（class）。
+ * 主要职责：承载 plan 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class TradePlanBuilder {
     public static final String OWNER = "com.stockbot.jp.plan.TradePlanBuilder#build(...)";
 
     private final Config config;
 
+/**
+ * 方法说明：TradePlanBuilder，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public TradePlanBuilder(Config config) {
         this.config = config;
     }
 
+/**
+ * 方法说明：build，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Outcome<TradePlan> build(Input in) {
         if (in == null) {
             return Outcome.failure(CauseCode.PLAN_INVALID, OWNER, Map.of("reason", "input_null"));
@@ -111,16 +126,31 @@ public final class TradePlanBuilder {
         return Outcome.success(plan, OWNER, details);
     }
 
+/**
+ * 方法说明：isFinitePositive，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean isFinitePositive(double value) {
         return Double.isFinite(value) && value > 0.0;
     }
 
+/**
+ * 方法说明：firstFinitePositive，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double firstFinitePositive(double a, double b) {
         if (isFinitePositive(a)) return a;
         if (isFinitePositive(b)) return b;
         return Double.NaN;
     }
 
+/**
+ * 方法说明：clamp，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double clamp(double value, double min, double max) {
         if (!Double.isFinite(value)) return min;
         if (value < min) return min;
@@ -128,6 +158,11 @@ public final class TradePlanBuilder {
         return value;
     }
 
+/**
+ * 方法说明：round2，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double round2(double value) {
         if (!Double.isFinite(value)) {
             return value;

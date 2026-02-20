@@ -8,6 +8,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 模块说明：KeywordBuilder（class）。
+ * 主要职责：承载 app 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public class KeywordBuilder {
 
     private static final Map<String, List<String>> ALIAS = new LinkedHashMap<>();
@@ -62,6 +67,11 @@ public class KeywordBuilder {
         ALIAS.put("8035.T", List.of("東京エレクトロン", "Tokyo Electron"));
     }
 
+/**
+ * 方法说明：buildQuery，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static String buildQuery(String ticker) {
         List<String> q = buildQueries(ticker, 3);
         if (q.isEmpty()) return ticker == null ? "" : ticker;
@@ -69,10 +79,20 @@ public class KeywordBuilder {
         return String.join(" OR ", q);
     }
 
+/**
+ * 方法说明：buildQueries，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static List<String> buildQueries(String ticker, int maxQueries) {
         return buildQueries(ticker, maxQueries, "");
     }
 
+/**
+ * 方法说明：buildQueries，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static List<String> buildQueries(String ticker, int maxQueries, String extraTermsCsv) {
         String t = normalizeTicker(ticker);
         if (t.isEmpty()) return List.of();
@@ -107,6 +127,11 @@ public class KeywordBuilder {
         return list;
     }
 
+/**
+ * 方法说明：buildAnchors，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static List<String> buildAnchors(String ticker, String code, List<String> aliases) {
         Set<String> out = new LinkedHashSet<>();
         addPhrase(out, ticker);
@@ -123,6 +148,11 @@ public class KeywordBuilder {
         return new ArrayList<>(out);
     }
 
+/**
+ * 方法说明：buildThemes，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static List<String> buildThemes(String market, String extraTermsCsv) {
         Set<String> out = new LinkedHashSet<>();
         out.addAll(THEME_FINANCIAL);
@@ -145,11 +175,21 @@ public class KeywordBuilder {
         return new ArrayList<>(out);
     }
 
+/**
+ * 方法说明：addPhrase，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static void addPhrase(Set<String> out, String raw) {
         String s = normalizePhrase(raw);
         if (!s.isEmpty()) out.add(s);
     }
 
+/**
+ * 方法说明：normalizePhrase，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String normalizePhrase(String raw) {
         if (raw == null) return "";
         String trimmed = raw.trim();
@@ -157,11 +197,21 @@ public class KeywordBuilder {
         return trimmed.replaceAll("\\s+", " ");
     }
 
+/**
+ * 方法说明：normalizeTicker，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String normalizeTicker(String ticker) {
         if (ticker == null) return "";
         return ticker.trim().toUpperCase(Locale.ROOT);
     }
 
+/**
+ * 方法说明：numericCode，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String numericCode(String ticker) {
         if (ticker == null) return "";
         int dot = ticker.indexOf('.');
@@ -171,6 +221,11 @@ public class KeywordBuilder {
         return "";
     }
 
+/**
+ * 方法说明：marketOf，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String marketOf(String ticker) {
         if (ticker == null) return "US";
         if (ticker.endsWith(".T")) return "JP";

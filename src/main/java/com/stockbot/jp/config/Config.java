@@ -11,6 +11,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+/**
+ * 模块说明：Config（class）。
+ * 主要职责：承载 config 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class Config {
 
     private static final Map<String, String> DEFAULTS = buildDefaults();
@@ -20,10 +25,20 @@ public final class Config {
     private final Properties overrideProps = new Properties();
     private final Path workingDir;
 
+/**
+ * 方法说明：Config，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Config(Path workingDir) {
         this.workingDir = workingDir;
     }
 
+/**
+ * 方法说明：load，负责加载配置或数据。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static Config load(Path workingDir) {
         Config config = new Config(workingDir);
 
@@ -49,10 +64,20 @@ public final class Config {
         return config;
     }
 
+/**
+ * 方法说明：workingDir，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Path workingDir() {
         return workingDir;
     }
 
+/**
+ * 方法说明：getString，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String getString(String key) {
         String raw = props.getProperty(key);
         if (raw != null) {
@@ -64,6 +89,11 @@ public final class Config {
         return DEFAULTS.getOrDefault(key, "");
     }
 
+/**
+ * 方法说明：getString，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String getString(String key, String fallback) {
         String value = getString(key);
         if (value.isEmpty()) {
@@ -72,6 +102,11 @@ public final class Config {
         return value;
     }
 
+/**
+ * 方法说明：getBoolean，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public boolean getBoolean(String key) {
         String value = getString(key);
         if (value.isEmpty()) {
@@ -83,6 +118,11 @@ public final class Config {
                 || "y".equalsIgnoreCase(value);
     }
 
+/**
+ * 方法说明：getBoolean，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public boolean getBoolean(String key, boolean fallback) {
         String raw = props.getProperty(key);
         if (raw == null || raw.trim().isEmpty()) {
@@ -91,15 +131,30 @@ public final class Config {
         return getBoolean(key);
     }
 
+/**
+ * 方法说明：getInt，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public int getInt(String key) {
         return getInt(key, parseInt(DEFAULTS.get(key), 0));
     }
 
+/**
+ * 方法说明：getInt，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public int getInt(String key, int fallback) {
         String value = getString(key);
         return parseInt(value, fallback);
     }
 
+/**
+ * 方法说明：getLong，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public long getLong(String key, long fallback) {
         String value = getString(key);
         try {
@@ -109,15 +164,30 @@ public final class Config {
         }
     }
 
+/**
+ * 方法说明：getDouble，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public double getDouble(String key) {
         return getDouble(key, parseDouble(DEFAULTS.get(key), 0.0));
     }
 
+/**
+ * 方法说明：getDouble，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public double getDouble(String key, double fallback) {
         String value = getString(key);
         return parseDouble(value, fallback);
     }
 
+/**
+ * 方法说明：getPath，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Path getPath(String key) {
         String value = getString(key);
         if (value.isEmpty()) {
@@ -126,6 +196,11 @@ public final class Config {
         return workingDir.resolve(value).normalize();
     }
 
+/**
+ * 方法说明：getList，负责获取数据并返回结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<String> getList(String key) {
         String value = getString(key);
         if (value.isEmpty()) {
@@ -142,6 +217,11 @@ public final class Config {
         return out;
     }
 
+/**
+ * 方法说明：requireString，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String requireString(String key) {
         String value = getString(key);
         if (value.isEmpty()) {
@@ -150,10 +230,20 @@ public final class Config {
         return value;
     }
 
+/**
+ * 方法说明：defaults，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public Map<String, String> defaults() {
         return DEFAULTS;
     }
 
+/**
+ * 方法说明：resolve，负责解析规则并确定最终结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public ResolvedValue resolve(String key) {
         return new ResolvedValue(
                 key == null ? "" : key,
@@ -162,6 +252,11 @@ public final class Config {
         );
     }
 
+/**
+ * 方法说明：sourceOf，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String sourceOf(String key) {
         if (key == null || key.trim().isEmpty()) {
             return "default";
@@ -180,6 +275,11 @@ public final class Config {
         return "default";
     }
 
+/**
+ * 方法说明：nonBlank，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String nonBlank(String raw) {
         if (raw == null) {
             return "";
@@ -188,6 +288,11 @@ public final class Config {
         return t.isEmpty() ? "" : t;
     }
 
+/**
+ * 方法说明：parseInt，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static int parseInt(String value, int fallback) {
         try {
             return Integer.parseInt(value.trim());
@@ -196,6 +301,11 @@ public final class Config {
         }
     }
 
+/**
+ * 方法说明：parseDouble，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static double parseDouble(String value, double fallback) {
         try {
             return Double.parseDouble(value.trim());
@@ -204,6 +314,11 @@ public final class Config {
         }
     }
 
+/**
+ * 方法说明：buildDefaults，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Map<String, String> buildDefaults() {
         Map<String, String> defaults = new HashMap<>();
 
@@ -341,7 +456,7 @@ public final class Config {
         defaults.put("watchlist.news.max_items", "12");
         defaults.put("watchlist.news.sources", "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews");
         defaults.put("watchlist.news.query_variants", "4");
-        defaults.put("watchlist.non_jp_handling", "SKIP_WITH_REASON");
+        defaults.put("watchlist.non_jp_handling", "PROCESS_SEPARATELY");
         defaults.put("watchlist.default_market_for_alpha", "US");
         defaults.put("watchlist.ai.base_url", "http://127.0.0.1:11434");
         defaults.put("watchlist.ai.model", "llama3.1:latest");

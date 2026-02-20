@@ -48,6 +48,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/**
+ * 模块说明：StockBotApplication（class）。
+ * 主要职责：承载 app 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class StockBotApplication {
     private static final DateTimeFormatter SCHEDULE_TIME_FMT = DateTimeFormatter.ofPattern("H:mm");
     private static final DateTimeFormatter DISPLAY_TS_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z");
@@ -59,12 +64,24 @@ public final class StockBotApplication {
     );
     private static final Pattern REPORT_TS_PATTERN = Pattern.compile("jp_daily_(\\d{8}_\\d{6})\\.html", Pattern.CASE_INSENSITIVE);
     private static volatile boolean LOG_ROUTE_INSTALLED = false;
+    private static final String BG_SCAN_LAST_STARTUP_KEY = "daily.background_scan.last_startup_at";
+    private static final Duration BG_SCAN_TRIGGER_INTERVAL = Duration.ofHours(8);
 
+/**
+ * 方法说明：main，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static void main(String[] args) {
         int exit = new StockBotApplication().run(args);
         System.exit(exit);
     }
 
+/**
+ * 方法说明：run，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public int run(String[] args) {
         Options options = buildOptions();
         CommandLine cmd;
@@ -93,8 +110,9 @@ public final class StockBotApplication {
 
             boolean noArgs = args == null || args.length == 0;
             boolean explicitTestCmd = cmd.hasOption("test");
-            boolean scheduleEnabled = (!explicitTestCmd && config.getBoolean("app.schedule.enabled", false))
-                    || (!explicitTestCmd && noArgs && mode.equals("DAILY"));
+            boolean explicitMaintenanceCmd = cmd.hasOption("reset-batch");
+            boolean scheduleEnabled = (!explicitTestCmd && !explicitMaintenanceCmd && config.getBoolean("app.schedule.enabled", false))
+                    || (!explicitTestCmd && !explicitMaintenanceCmd && noArgs && mode.equals("DAILY"));
             if (scheduleEnabled && !mode.equals("DAILY")) {
                 System.err.println("ERROR: schedule requires DAILY mode (config app.mode=DAILY).");
                 return 2;
@@ -125,6 +143,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：installLogRoutingIfNeeded，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void installLogRoutingIfNeeded(Config config) {
         if (LOG_ROUTE_INSTALLED) {
             return;
@@ -152,6 +175,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：runSchedule，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private int runSchedule(
             CommandLine cmd,
             Config config,
@@ -176,7 +204,6 @@ public final class StockBotApplication {
 
         ReentrantLock runLock = new ReentrantLock();
         AtomicBoolean stopBackground = new AtomicBoolean(false);
-        int intervalSec = Math.max(30, config.getInt("app.background_scan.interval_sec", 300));
         Thread backgroundThread = startBackgroundScanner(
                 config,
                 universeDao,
@@ -185,10 +212,9 @@ public final class StockBotApplication {
                 runDao,
                 scanResultDao,
                 runLock,
-                stopBackground,
-                intervalSec
+                stopBackground
         );
-        System.out.println("Background scanner enabled. interval_sec=" + intervalSec);
+        System.out.println("Background scanner enabled. trigger=startup_gap>=8h OR runtime_every_8h");
 
         System.out.println("Schedule mode started. zone=" + zoneId + ", times=" + formatTimes(runTimes));
         try {
@@ -234,6 +260,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：runOnce，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private int runOnce(
             CommandLine cmd,
             String mode,
@@ -275,6 +306,11 @@ public final class StockBotApplication {
         return runBacktest(config, barDailyDao, runDao);
     }
 
+/**
+ * 方法说明：runScheduledMergeReport，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private int runScheduledMergeReport(
             CommandLine cmd,
             Config config,
@@ -313,6 +349,11 @@ public final class StockBotApplication {
         return 0;
     }
 
+/**
+ * 方法说明：needsFreshMarketScan，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean needsFreshMarketScan(Optional<RunRow> latestMarket, ZoneId zoneId) {
         if (latestMarket.isEmpty()) {
             return true;
@@ -324,18 +365,30 @@ public final class StockBotApplication {
         return !run.startedAt.atZone(zoneId).toLocalDate().equals(ZonedDateTime.now(zoneId).toLocalDate());
     }
 
+/**
+ * 方法说明：resetBatchCheckpointOnly，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void resetBatchCheckpointOnly(Config config, MetadataDao metadataDao) throws Exception {
         boolean batchEnabled = config.getBoolean("scan.batch.enabled", true);
         boolean resumeEnabled = batchEnabled && config.getBoolean("scan.batch.resume_enabled", true);
         String checkpointKey = config.getString("scan.batch.checkpoint_key", "daily.scan.batch.checkpoint.v1");
-        if (!resumeEnabled) {
+        if (resumeEnabled) {
+            metadataDao.delete(checkpointKey);
+            System.out.println("Batch checkpoint reset. key=" + checkpointKey);
+        } else {
             System.out.println("Batch checkpoint reset skipped. resume is disabled.");
-            return;
         }
-        metadataDao.delete(checkpointKey);
-        System.out.println("Batch checkpoint reset only. key=" + checkpointKey);
+        metadataDao.delete(BG_SCAN_LAST_STARTUP_KEY);
+        System.out.println("Background scan startup trigger reset. key=" + BG_SCAN_LAST_STARTUP_KEY);
     }
 
+/**
+ * 方法说明：runBacktest，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private int runBacktest(Config config, BarDailyDao barDailyDao, RunDao runDao) throws Exception {
         long runId = runDao.startRun("BACKTEST", "rolling run-based backtest");
         try {
@@ -361,6 +414,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：sendTestDailyReportEmail，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private int sendTestDailyReportEmail(
             Config config,
             UniverseDao universeDao,
@@ -403,7 +461,7 @@ public final class StockBotApplication {
         Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
         String subject = String.format(
                 Locale.US,
-                "%s 日本股市报告 %s 市场参考前%d [运行#%d]",
+                "%s 閺冦儲婀伴懖鈥崇閹躲儱鎲?%s 鐢倸婧€閸欏倽鈧啫澧?d [鏉╂劘顢?%d]",
                 settings.subjectPrefix,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(runAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size(),
@@ -418,6 +476,11 @@ public final class StockBotApplication {
         return 0;
     }
 
+/**
+ * 方法说明：sendDailyMailIfNeeded，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutcome outcome) throws Exception {
         boolean sendEmail = config.getBoolean("email.enabled", true);
         if (!sendEmail) {
@@ -435,7 +498,7 @@ public final class StockBotApplication {
         String text = "";
         String subject = String.format(
                 Locale.US,
-                "%s 日本股市报告 %s 市场参考前%d",
+                "%s 閺冦儲婀伴懖鈥崇閹躲儱鎲?%s 鐢倸婧€閸欏倽鈧啫澧?d",
                 settings.subjectPrefix,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(outcome.startedAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size()
@@ -444,6 +507,11 @@ public final class StockBotApplication {
         System.out.println("Email sent to " + String.join(",", settings.to));
     }
 
+/**
+ * 方法说明：logDailySections，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void logDailySections(DailyRunOutcome outcome, Config config) {
         int referenceTop = Math.max(1, config.getInt("scan.market_reference_top_n", 5));
         System.out.println("watchlist_analysis_count=" + outcome.watchlistCandidates.size());
@@ -453,6 +521,11 @@ public final class StockBotApplication {
         printCandidateLog("market_ref", outcome.marketReferenceCandidates, referenceTop);
     }
 
+/**
+ * 方法说明：printWatchlistLog，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void printWatchlistLog(String prefix, List<WatchlistAnalysis> rows, int limit) {
         int size = rows == null ? 0 : rows.size();
         int max = Math.min(size, Math.max(0, limit));
@@ -484,6 +557,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：printCandidateLog，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void printCandidateLog(String prefix, List<ScoredCandidate> candidates, int limit) {
         int size = candidates == null ? 0 : candidates.size();
         int max = Math.min(size, Math.max(0, limit));
@@ -503,6 +581,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：collectReportAttachments，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<Path> collectReportAttachments(String html, Path reportPath) {
         LinkedHashSet<Path> files = new LinkedHashSet<>();
         if (reportPath == null) {
@@ -557,6 +640,11 @@ public final class StockBotApplication {
         return new ArrayList<>(files);
     }
 
+/**
+ * 方法说明：stripTrendImagesFromHtml，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String stripTrendImagesFromHtml(String html) {
         if (html == null || html.isEmpty()) {
             return "";
@@ -566,10 +654,20 @@ public final class StockBotApplication {
         return out;
     }
 
+/**
+ * 方法说明：safe，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String safe(String value) {
         return value == null ? "" : value;
     }
 
+/**
+ * 方法说明：trimForLog，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String trimForLog(String value, int maxLen) {
         String text = safe(value).replace("\r", " ").replace("\n", " ").trim();
         if (text.length() <= maxLen) {
@@ -578,22 +676,42 @@ public final class StockBotApplication {
         return text.substring(0, Math.max(0, maxLen - 3)) + "...";
     }
 
+/**
+ * 方法说明：buildOptions，负责构建目标对象或输出内容。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Options buildOptions() {
         Options options = new Options();
-        options.addOption(Option.builder().longOpt("reset-batch").desc("clear batch checkpoint only, then exit").build());
+        options.addOption(Option.builder().longOpt("reset-batch").desc("clear batch checkpoint and background startup trigger checkpoint, then exit").build());
         options.addOption(Option.builder().longOpt("test").desc("rebuild DAILY report from latest market scan data and send test email (no full-market rescan)").build());
         options.addOption(Option.builder().longOpt("help").desc("show help").build());
         return options;
     }
 
+/**
+ * 方法说明：normalizeMode，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String normalizeMode(String value) {
         return value == null ? "DAILY" : value.trim().toUpperCase(Locale.ROOT);
     }
 
+/**
+ * 方法说明：resolveMode，负责解析规则并确定最终结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String resolveMode(Config config) {
         return normalizeMode(config.getString("app.mode", "DAILY"));
     }
 
+/**
+ * 方法说明：startBackgroundScanner，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Thread startBackgroundScanner(
             Config config,
             UniverseDao universeDao,
@@ -602,23 +720,68 @@ public final class StockBotApplication {
             RunDao runDao,
             ScanResultDao scanResultDao,
             ReentrantLock runLock,
-            AtomicBoolean stopFlag,
-            int intervalSec
+            AtomicBoolean stopFlag
     ) {
+        Instant startupAt = Instant.now();
         Thread t = new Thread(() -> {
+            StartupScanDecision decision = evaluateStartupScanDecision(metadataDao, startupAt);
+            if (!decision.shouldScan) {
+                if (decision.lastStartupAt == null) {
+                    System.out.println("IDLE_SCAN startup trigger skipped. no prior startup timestamp.");
+                } else {
+                    long hours = Duration.between(decision.lastStartupAt, startupAt).toHours();
+                    System.out.println("IDLE_SCAN startup trigger skipped. startup gap=" + hours + "h < 8h (last_startup="
+                            + decision.lastStartupAt + ", current_startup=" + startupAt + ")");
+                }
+            }
+
+            boolean startupScanPending = decision.shouldScan;
+            Instant nextRuntimeScanAt = startupAt.plus(BG_SCAN_TRIGGER_INTERVAL);
+
             while (!stopFlag.get()) {
-                boolean locked = runLock.tryLock();
-                try {
-                    if (locked) {
-                        runBackgroundScanOnce(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao);
+                if (startupScanPending) {
+                    boolean triggered = tryRunBackgroundScanOnce(
+                            config,
+                            universeDao,
+                            metadataDao,
+                            barDailyDao,
+                            runDao,
+                            scanResultDao,
+                            runLock,
+                            "startup"
+                    );
+                    if (triggered) {
+                        startupScanPending = false;
+                        nextRuntimeScanAt = Instant.now().plus(BG_SCAN_TRIGGER_INTERVAL);
+                    } else if (!sleepMillisInterruptible(30_000L)) {
+                        return;
                     }
-                } finally {
-                    if (locked) {
-                        runLock.unlock();
-                    }
+                    continue;
                 }
 
-                if (!sleepSecondsInterruptible(intervalSec)) {
+                Instant now = Instant.now();
+                if (now.isBefore(nextRuntimeScanAt)) {
+                    long ms = Duration.between(now, nextRuntimeScanAt).toMillis();
+                    long sleepMs = Math.min(30_000L, Math.max(1L, ms));
+                    if (!sleepMillisInterruptible(sleepMs)) {
+                        return;
+                    }
+                    continue;
+                }
+
+                boolean triggered = tryRunBackgroundScanOnce(
+                        config,
+                        universeDao,
+                        metadataDao,
+                        barDailyDao,
+                        runDao,
+                        scanResultDao,
+                        runLock,
+                        "runtime_8h"
+                );
+                if (triggered) {
+                    nextRuntimeScanAt = Instant.now().plus(BG_SCAN_TRIGGER_INTERVAL);
+                } else if (!sleepMillisInterruptible(30_000L)) {
                     return;
                 }
             }
@@ -628,6 +791,39 @@ public final class StockBotApplication {
         return t;
     }
 
+/**
+ * 方法说明：tryRunBackgroundScanOnce，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
+    private boolean tryRunBackgroundScanOnce(
+            Config config,
+            UniverseDao universeDao,
+            MetadataDao metadataDao,
+            BarDailyDao barDailyDao,
+            RunDao runDao,
+            ScanResultDao scanResultDao,
+            ReentrantLock runLock,
+            String trigger
+    ) {
+        boolean locked = runLock.tryLock();
+        if (!locked) {
+            System.out.println("IDLE_SCAN deferred. trigger=" + trigger + ", reason=run_lock_busy");
+            return false;
+        }
+        try {
+            runBackgroundScanOnce(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao);
+            return true;
+        } finally {
+            runLock.unlock();
+        }
+    }
+
+/**
+ * 方法说明：runBackgroundScanOnce，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void runBackgroundScanOnce(
             Config config,
             UniverseDao universeDao,
@@ -646,7 +842,7 @@ public final class StockBotApplication {
 
             DailyRunner dailyRunner = new DailyRunner(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao);
             Instant start = Instant.now();
-            DailyRunOutcome outcome = dailyRunner.runMarketScanOnly(forceUniverse, topN, false);
+            DailyRunOutcome outcome = dailyRunner.runMarketScanOnly(forceUniverse, topN, true);
             long sec = Duration.between(start, Instant.now()).toSeconds();
             System.out.println("IDLE_SCAN completed. run_id=" + outcome.runId
                     + ", batch_progress=" + outcome.processedSegments + "/" + outcome.totalSegments
@@ -658,10 +854,43 @@ public final class StockBotApplication {
         }
     }
 
-    private boolean sleepSecondsInterruptible(int sec) {
-        long ms = Math.max(1, sec) * 1000L;
+/**
+ * 方法说明：evaluateStartupScanDecision，负责评估条件并输出判定结论。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
+    private StartupScanDecision evaluateStartupScanDecision(MetadataDao metadataDao, Instant startupAt) {
+        Instant lastStartupAt = null;
         try {
-            Thread.sleep(ms);
+            Optional<String> raw = metadataDao.get(BG_SCAN_LAST_STARTUP_KEY);
+            if (raw.isPresent() && !raw.get().trim().isEmpty()) {
+                try {
+                    lastStartupAt = Instant.parse(raw.get().trim());
+                } catch (Exception ignored) {
+                    lastStartupAt = null;
+                }
+            }
+            metadataDao.put(BG_SCAN_LAST_STARTUP_KEY, startupAt.toString());
+        } catch (Exception e) {
+            System.err.println("WARN: failed to read/write startup checkpoint for background scan: " + e.getMessage());
+            return new StartupScanDecision(true, lastStartupAt);
+        }
+        if (lastStartupAt == null) {
+            return new StartupScanDecision(true, null);
+        }
+        Duration gap = Duration.between(lastStartupAt, startupAt);
+        boolean shouldScan = !gap.isNegative() && gap.compareTo(BG_SCAN_TRIGGER_INTERVAL) >= 0;
+        return new StartupScanDecision(shouldScan, lastStartupAt);
+    }
+
+/**
+ * 方法说明：sleepMillisInterruptible，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
+    private boolean sleepMillisInterruptible(long ms) {
+        try {
+            Thread.sleep(Math.max(1L, ms));
             return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -669,6 +898,21 @@ public final class StockBotApplication {
         }
     }
 
+    private static final class StartupScanDecision {
+        final boolean shouldScan;
+        final Instant lastStartupAt;
+
+        private StartupScanDecision(boolean shouldScan, Instant lastStartupAt) {
+            this.shouldScan = shouldScan;
+            this.lastStartupAt = lastStartupAt;
+        }
+    }
+
+/**
+ * 方法说明：loadWatchlist，负责加载配置或数据。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<String> loadWatchlist(Config config) {
         String watchlistPath = config.getString("watchlist.path", "watchlist.txt");
         Path path = config.workingDir().resolve(watchlistPath).normalize();
@@ -695,6 +939,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：parseTime，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private LocalTime parseTime(String value) {
         try {
             return LocalTime.parse(value, SCHEDULE_TIME_FMT);
@@ -703,6 +952,11 @@ public final class StockBotApplication {
         }
     }
 
+/**
+ * 方法说明：parseTimes，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<LocalTime> parseTimes(String value) {
         if (value == null || value.trim().isEmpty()) {
             return List.of();
@@ -718,12 +972,22 @@ public final class StockBotApplication {
         return out;
     }
 
+/**
+ * 方法说明：formatTimes，负责格式化数据用于展示或传输。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private String formatTimes(List<LocalTime> times) {
         return times.stream()
                 .map(t -> t.format(DateTimeFormatter.ofPattern("HH:mm")))
                 .collect(Collectors.joining(","));
     }
 
+/**
+ * 方法说明：nextRunTime，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private ZonedDateTime nextRunTime(ZonedDateTime now, List<LocalTime> runTimes) {
         for (LocalTime t : runTimes) {
             ZonedDateTime candidate = now.toLocalDate().atTime(t).atZone(now.getZone());
@@ -734,6 +998,11 @@ public final class StockBotApplication {
         return now.toLocalDate().plusDays(1).atTime(runTimes.get(0)).atZone(now.getZone());
     }
 
+/**
+ * 方法说明：sleepUntil，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private boolean sleepUntil(ZonedDateTime next) {
         while (true) {
             long millis = Duration.between(ZonedDateTime.now(next.getZone()), next).toMillis();

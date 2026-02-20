@@ -16,17 +16,32 @@ import java.util.List;
 import java.util.Locale;
 import java.util.OptionalDouble;
 
+/**
+ * 模块说明：BacktestRunner（class）。
+ * 主要职责：承载 backtest 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class BacktestRunner {
     private final Config config;
     private final RunDao runDao;
     private final BarDailyDao barDailyDao;
 
+/**
+ * 方法说明：BacktestRunner，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public BacktestRunner(Config config, RunDao runDao, BarDailyDao barDailyDao) {
         this.config = config;
         this.runDao = runDao;
         this.barDailyDao = barDailyDao;
     }
 
+/**
+ * 方法说明：run，负责执行核心流程并返回执行结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public BacktestReport run() throws SQLException {
         int lookbackRuns = Math.max(1, config.getInt("backtest.lookback_runs", 30));
         int topK = Math.max(1, config.getInt("backtest.top_k", 5));
@@ -83,6 +98,11 @@ public final class BacktestRunner {
         return new BacktestReport(usedRuns, returns.size(), round2(avg), round2(median), round2(winRate));
     }
 
+/**
+ * 方法说明：toSummaryText，负责转换数据结构用于后续处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String toSummaryText(BacktestReport report) {
         return String.format(
                 Locale.US,
@@ -95,6 +115,11 @@ public final class BacktestRunner {
         );
     }
 
+/**
+ * 方法说明：round2，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
     }

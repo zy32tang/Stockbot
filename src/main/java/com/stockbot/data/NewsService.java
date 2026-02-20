@@ -19,6 +19,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 模块说明：NewsService（class）。
+ * 主要职责：承载 data 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public class NewsService {
     private static final ZonedDateTime MIN_ZDT = ZonedDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);
     private static final Set<String> SUPPORTED_SOURCES = Set.of(
@@ -48,10 +53,20 @@ public class NewsService {
     private final List<String> sources;
     private final int queryVariants;
 
+/**
+ * 方法说明：NewsService，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public NewsService(HttpClientEx http, String lang, String region, int maxItems) {
         this(http, lang, region, maxItems, "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews", 4);
     }
 
+/**
+ * 方法说明：NewsService，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public NewsService(HttpClientEx http, String lang, String region, int maxItems, String sourcesCsv, int queryVariants) {
         this.http = http;
         this.lang = lang;
@@ -61,12 +76,22 @@ public class NewsService {
         this.queryVariants = Math.max(1, queryVariants);
     }
 
+/**
+ * 方法说明：sourceLabel，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public String sourceLabel() {
         return sources.stream()
                 .map(NewsService::sourceDisplayName)
                 .collect(Collectors.joining("+"));
     }
 
+/**
+ * 方法说明：fetchNews，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchNews(String ticker, List<String> queries) {
         try {
             List<String> qlist = normalizeQueries(ticker, queries);
@@ -116,30 +141,65 @@ public class NewsService {
         }
     }
 
+/**
+ * 方法说明：fetchCnbcTopNewsRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchCnbcTopNewsRss(int limit) {
         return fetchRss("https://www.cnbc.com/id/100003114/device/rss/rss.html", limit);
     }
 
+/**
+ * 方法说明：fetchMarketWatchTopStoriesRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchMarketWatchTopStoriesRss(int limit) {
         return fetchRss("https://feeds.marketwatch.com/marketwatch/topstories/", limit);
     }
 
+/**
+ * 方法说明：fetchWsjMarketsRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchWsjMarketsRss(int limit) {
         return fetchRss("https://feeds.a.dj.com/rss/RSSMarketsMain.xml", limit);
     }
 
+/**
+ * 方法说明：fetchNyTimesBusinessRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchNyTimesBusinessRss(int limit) {
         return fetchRss("https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", limit);
     }
 
+/**
+ * 方法说明：fetchYahooNewsTopRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchYahooNewsTopRss(int limit) {
         return fetchRss("https://news.yahoo.com/rss", limit);
     }
 
+/**
+ * 方法说明：fetchGoogleNewsRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchGoogleNewsRss(String query) {
         return fetchGoogleNewsRss(query, maxItems);
     }
 
+/**
+ * 方法说明：fetchGoogleNewsRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchGoogleNewsRss(String query, int limit) {
         try {
             String q = URLEncoder.encode(query, StandardCharsets.UTF_8);
@@ -151,6 +211,11 @@ public class NewsService {
         }
     }
 
+/**
+ * 方法说明：fetchBingNewsRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchBingNewsRss(String query, int limit) {
         try {
             String q = URLEncoder.encode(query, StandardCharsets.UTF_8);
@@ -165,6 +230,11 @@ public class NewsService {
         }
     }
 
+/**
+ * 方法说明：fetchYahooFinanceRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public List<NewsItem> fetchYahooFinanceRss(String ticker, int limit) {
         try {
             String t = URLEncoder.encode(ticker == null ? "" : ticker.trim(), StandardCharsets.UTF_8);
@@ -182,6 +252,11 @@ public class NewsService {
         }
     }
 
+/**
+ * 方法说明：fetchRss，负责拉取外部数据并做基础处理。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<NewsItem> fetchRss(String url, int limit) {
         try {
             String xml = http.getText(url, 30);
@@ -191,10 +266,20 @@ public class NewsService {
         }
     }
 
+/**
+ * 方法说明：newsTimeOrMin，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static ZonedDateTime newsTimeOrMin(NewsItem ni) {
         return ni == null || ni.publishedAt == null ? MIN_ZDT : ni.publishedAt;
     }
 
+/**
+ * 方法说明：merge，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private void merge(Map<String, NewsItem> merged, List<NewsItem> items) {
         if (items == null || items.isEmpty()) return;
         for (NewsItem ni : items) {
@@ -205,6 +290,11 @@ public class NewsService {
         }
     }
 
+/**
+ * 方法说明：isNewer，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static boolean isNewer(NewsItem a, NewsItem b) {
         ZonedDateTime ta = a.publishedAt;
         ZonedDateTime tb = b.publishedAt;
@@ -213,6 +303,11 @@ public class NewsService {
         return ta.isAfter(tb);
     }
 
+/**
+ * 方法说明：dedupKey，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String dedupKey(NewsItem ni) {
         String title = ni.title == null ? "" : ni.title.trim().toLowerCase(Locale.ROOT);
         String link = ni.link == null ? "" : ni.link.trim().toLowerCase(Locale.ROOT);
@@ -220,6 +315,11 @@ public class NewsService {
         return link;
     }
 
+/**
+ * 方法说明：normalizeQueries，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private List<String> normalizeQueries(String ticker, List<String> queries) {
         Set<String> out = new LinkedHashSet<>();
         if (queries != null) {
@@ -236,6 +336,11 @@ public class NewsService {
         return new ArrayList<>(out);
     }
 
+/**
+ * 方法说明：parseSources，负责解析输入内容并转换结构。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static List<String> parseSources(String csv) {
         Set<String> out = new LinkedHashSet<>();
         if (csv != null) {
@@ -250,6 +355,11 @@ public class NewsService {
         return new ArrayList<>(out);
     }
 
+/**
+ * 方法说明：sourceDisplayName，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String sourceDisplayName(String source) {
         if ("google".equals(source)) return "GoogleNewsRSS";
         if ("bing".equals(source)) return "BingNewsRSS";
@@ -262,10 +372,20 @@ public class NewsService {
         return source;
     }
 
+/**
+ * 方法说明：staticFeedFetchLimit，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private int staticFeedFetchLimit() {
         return Math.max(maxItems * 4, 24);
     }
 
+/**
+ * 方法说明：filterByRelevance，负责按规则过滤无效数据。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static List<NewsItem> filterByRelevance(List<NewsItem> items, Set<String> tokens, int limit) {
         if (items == null || items.isEmpty()) return List.of();
         int max = Math.max(1, limit);
@@ -284,6 +404,11 @@ public class NewsService {
         return out;
     }
 
+/**
+ * 方法说明：isRelevant，负责判断条件是否满足。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static boolean isRelevant(NewsItem ni, Set<String> tokens) {
         String text = normalizeText(ni.title) + " " + normalizeText(ni.link) + " " + normalizeText(ni.source);
         for (String token : tokens) {
@@ -292,6 +417,11 @@ public class NewsService {
         return false;
     }
 
+/**
+ * 方法说明：relevanceTokens，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static Set<String> relevanceTokens(String ticker, List<String> queries) {
         Set<String> out = new LinkedHashSet<>();
         addToken(out, ticker);
@@ -309,6 +439,11 @@ public class NewsService {
         return out;
     }
 
+/**
+ * 方法说明：addToken，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static void addToken(Set<String> out, String raw) {
         if (raw == null) return;
         String t = raw.trim().toLowerCase(Locale.ROOT);
@@ -321,6 +456,11 @@ public class NewsService {
         out.add(t);
     }
 
+/**
+ * 方法说明：numericCode，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String numericCode(String ticker) {
         if (ticker == null) return "";
         String t = ticker.trim().toUpperCase(Locale.ROOT);
@@ -331,6 +471,11 @@ public class NewsService {
         return "";
     }
 
+/**
+ * 方法说明：normalizeText，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private static String normalizeText(String text) {
         if (text == null) return "";
         return text.trim().toLowerCase(Locale.ROOT);

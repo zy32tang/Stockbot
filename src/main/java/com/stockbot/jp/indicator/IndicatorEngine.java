@@ -5,6 +5,11 @@ import com.stockbot.jp.model.IndicatorSnapshot;
 
 import java.util.List;
 
+/**
+ * 模块说明：IndicatorEngine（class）。
+ * 主要职责：承载 indicator 模块 的关键逻辑，对外提供可复用的调用入口。
+ * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ */
 public final class IndicatorEngine {
     private static final List<String> COMPUTED_INDICATORS = List.of(
             "sma20", "sma60", "sma60_prev5", "sma120",
@@ -19,14 +24,29 @@ public final class IndicatorEngine {
 
     private final int stopLossLookbackDays;
 
+/**
+ * 方法说明：IndicatorEngine，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public IndicatorEngine() {
         this(20);
     }
 
+/**
+ * 方法说明：IndicatorEngine，负责初始化对象并装配依赖参数。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public IndicatorEngine(int stopLossLookbackDays) {
         this.stopLossLookbackDays = Math.max(5, stopLossLookbackDays);
     }
 
+/**
+ * 方法说明：compute，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public IndicatorSnapshot compute(List<BarDaily> bars) {
         if (bars == null || bars.isEmpty()) {
             return null;
@@ -97,6 +117,11 @@ public final class IndicatorEngine {
         );
     }
 
+/**
+ * 方法说明：sma，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double sma(double[] values, int period) {
         if (values.length < period || period <= 0) {
             return 0.0;
@@ -108,6 +133,11 @@ public final class IndicatorEngine {
         return sum / period;
     }
 
+/**
+ * 方法说明：smaAtOffset，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double smaAtOffset(double[] values, int period, int offset) {
         if (period <= 0 || offset < 0 || values.length < period + offset) {
             return 0.0;
@@ -124,6 +154,11 @@ public final class IndicatorEngine {
         return sum / period;
     }
 
+/**
+ * 方法说明：rsi，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double rsi(double[] closes, int period) {
         if (closes.length <= period) {
             return 50.0;
@@ -155,6 +190,11 @@ public final class IndicatorEngine {
         return 100.0 - (100.0 / (1.0 + rs));
     }
 
+/**
+ * 方法说明：atr，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double atr(double[] highs, double[] lows, double[] closes, int period) {
         if (closes.length <= period) {
             return 0.0;
@@ -172,6 +212,11 @@ public final class IndicatorEngine {
         return sum / period;
     }
 
+/**
+ * 方法说明：bollinger，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private Bollinger bollinger(double[] closes, int period, double k) {
         if (closes.length < period) {
             double last = closes[closes.length - 1];
@@ -187,6 +232,11 @@ public final class IndicatorEngine {
         return new Bollinger(mean + k * stdev, mean, mean - k * stdev);
     }
 
+/**
+ * 方法说明：drawdownPct，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double drawdownPct(double[] closes, int lookback) {
         if (closes.length == 0) {
             return 0.0;
@@ -202,6 +252,11 @@ public final class IndicatorEngine {
         return (closes[closes.length - 1] - peak) / peak * 100.0;
     }
 
+/**
+ * 方法说明：volatilityPct，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double volatilityPct(double[] closes, int period) {
         if (closes.length <= period) {
             return 0.0;
@@ -234,6 +289,11 @@ public final class IndicatorEngine {
         return dailyVol * Math.sqrt(252.0) * 100.0;
     }
 
+/**
+ * 方法说明：returnPct，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double returnPct(double[] closes, int days) {
         if (closes.length <= days) {
             return 0.0;
@@ -245,6 +305,11 @@ public final class IndicatorEngine {
         return (closes[closes.length - 1] - prev) / prev * 100.0;
     }
 
+/**
+ * 方法说明：safePct，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double safePct(double value, double base) {
         if (base == 0.0) {
             return 0.0;
@@ -252,6 +317,11 @@ public final class IndicatorEngine {
         return value / base * 100.0;
     }
 
+/**
+ * 方法说明：minRecent，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double minRecent(double[] values, int period) {
         if (values == null || values.length == 0 || period <= 0) {
             return 0.0;
@@ -267,6 +337,11 @@ public final class IndicatorEngine {
         return min;
     }
 
+/**
+ * 方法说明：maxRecent，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     private double maxRecent(double[] values, int period) {
         if (values == null || values.length == 0 || period <= 0) {
             return 0.0;
@@ -294,6 +369,11 @@ public final class IndicatorEngine {
         }
     }
 
+/**
+ * 方法说明：computedIndicators，负责执行业务逻辑并产出结果。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
     public static List<String> computedIndicators() {
         return COMPUTED_INDICATORS;
     }
