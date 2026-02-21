@@ -257,6 +257,7 @@ public final class ReportBuilder {
         appendTopCards(sb, topSelection, isClose, hideEntryInIntraday, diag);
         appendPolymarketSignals(sb, polymarketReport, diag);
         appendDisclaimer(sb);
+        appendConfigOverview(sb, diag);
         appendDiagnostics(sb, diag);
         sb.append("</div></body></html>");
         return sb.toString();
@@ -500,7 +501,7 @@ public final class ReportBuilder {
  */
     private void appendWatchAiSummary(StringBuilder sb, List<WatchlistAnalysis> watchRows) {
         if (watchRows.isEmpty()) return;
-        sb.append("<div class='card'><h3 style='margin-top:0;'>AI 鏂伴椈鎽樿锛堟渶澶?琛岋級</h3>");
+        sb.append("<div class='card'><h3 style='margin-top:0;'>AI 新闻摘要（最多3行）</h3>");
         for (WatchlistAnalysis row : watchRows) {
             sb.append("<div style='margin-bottom:8px;'><b>").append(escape(watchName(row))).append("</b>");
             for (String line : aiSummaryLines(row)) {
@@ -676,6 +677,33 @@ public final class ReportBuilder {
     }
 
 /**
+ * 方法说明：appendConfigOverview，负责追加组装输出片段。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
+    private void appendConfigOverview(StringBuilder sb, Diagnostics diagnostics) {
+        sb.append("<h2>H. 参数总览（本次运行）</h2>");
+        if (diagnostics == null || diagnostics.configSnapshot.isEmpty()) {
+            sb.append("<div class='small'>未采集到参数快照。</div>");
+            return;
+        }
+        sb.append("<div class='small'>以下参数来自本次实际运行配置，来源字段含义：default/resource/override。</div>");
+        sb.append("<table><tr><th>参数</th><th>当前值</th><th>来源</th><th>说明</th></tr>");
+        for (Diagnostics.ConfigItem item : diagnostics.configSnapshot.values()) {
+            sb.append("<tr><td>")
+                    .append(escape(item.key))
+                    .append("</td><td>")
+                    .append(escape(blankTo(item.value, "")))
+                    .append("</td><td>")
+                    .append(escape(blankTo(item.source, "default")))
+                    .append("</td><td>")
+                    .append(escape(configDesc(item.key)))
+                    .append("</td></tr>");
+        }
+        sb.append("</table>");
+    }
+
+/**
  * 方法说明：appendDiagnostics，负责追加组装输出片段。
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
@@ -684,7 +712,7 @@ public final class ReportBuilder {
         if (diagnostics == null) {
             return;
         }
-        sb.append("<h2>H. Diagnostics</h2>");
+        sb.append("<h2>I. Diagnostics</h2>");
         sb.append("<details><summary>diagnostics</summary><div class='small'>");
         sb.append("run_id=").append(diagnostics.runId).append(" | run_mode=").append(escape(blankTo(diagnostics.runMode, "-"))).append("<br>");
         sb.append("coverage_scope=").append(escape(blankTo(diagnostics.coverageScope, "-")))
@@ -1442,6 +1470,128 @@ public final class ReportBuilder {
     }
 
 /**
+ * 方法说明：configDesc，负责根据键名返回参数说明。
+ * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
+ * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ */
+    private String configDesc(String key) {
+        if (key == null || key.trim().isEmpty()) {
+            return "-";
+        }
+        switch (key) {
+            case "app.zone":
+                return "运行时区";
+            case "app.schedule.enabled":
+                return "是否启用定时任务";
+            case "schedule.zone":
+                return "调度时区";
+            case "schedule.times":
+            case "schedule.time":
+                return "调度触发时间";
+            case "report.dir":
+                return "报告输出目录";
+            case "scan.top_n":
+                return "全市场扫描默认 TopN";
+            case "scan.market_reference_top_n":
+                return "市场参考候选数量";
+            case "scan.min_score":
+                return "最小入选分数";
+            case "scan.min_history_bars":
+                return "最小历史K线数量";
+            case "scan.fresh_days":
+                return "行情数据允许的最大滞后天数";
+            case "scan.cache.fresh_days":
+                return "缓存数据允许的最大滞后天数";
+            case "backtest.hold_days":
+                return "预测周期（持有天数）";
+            case "report.top5.skip_on_partial":
+                return "部分扫描时是否跳过Top5";
+            case "report.top5.min_fetch_coverage_pct":
+                return "Top5最小抓取覆盖率";
+            case "report.top5.allow_partial_when_coverage_ge":
+                return "部分扫描放行阈值";
+            case "report.metrics.top5_perf.enabled":
+                return "是否启用Top5绩效指标";
+            case "report.metrics.top5_perf.win_rate_30d":
+                return "Top5近30日胜率";
+            case "report.metrics.top5_perf.max_drawdown_30d":
+                return "Top5近30日最大回撤";
+            case "report.coverage.show_scope":
+                return "是否显示覆盖率口径";
+            case "report.mode.intraday.hideEntry":
+                return "盘中模式隐藏入场位";
+            case "report.advice.fetch_low_pct":
+                return "行动建议低覆盖阈值";
+            case "report.advice.indicator_low_pct":
+                return "行动建议低指标覆盖阈值";
+            case "report.advice.fetch_warn_pct":
+                return "行动建议告警覆盖阈值";
+            case "report.advice.candidate_try_max":
+                return "小仓试错候选数阈值";
+            case "report.advice.avg_score_try_threshold":
+                return "小仓试错平均分阈值";
+            case "report.score.tier.focus_threshold":
+                return "分层：关注阈值";
+            case "report.score.tier.observe_threshold":
+                return "分层：观察阈值";
+            case "filter.min_signals":
+                return "筛选最小信号数量";
+            case "filter.hard.max_drop_3d_pct":
+                return "3日最大允许跌幅";
+            case "risk.max_atr_pct":
+                return "风控ATR上限(%)";
+            case "risk.max_volatility_pct":
+                return "风控波动率上限(%)";
+            case "risk.max_drawdown_pct":
+                return "风控回撤上限(%)";
+            case "risk.min_volume_ratio":
+                return "风控最小量比";
+            case "risk.fail_atr_multiplier":
+                return "ATR触发失败倍数";
+            case "risk.fail_volatility_multiplier":
+                return "波动率触发失败倍数";
+            case "risk.penalty.atr_scale":
+            case "risk.penalty.atr_cap":
+            case "risk.penalty.volatility_scale":
+            case "risk.penalty.volatility_cap":
+            case "risk.penalty.drawdown_scale":
+            case "risk.penalty.drawdown_cap":
+            case "risk.penalty.liquidity":
+                return "风险惩罚参数";
+            case "rr.min":
+                return "最小盈亏比";
+            case "plan.rr.min_floor":
+                return "计划最小盈亏比下限";
+            case "plan.entry.buffer_pct":
+                return "入场缓冲百分比";
+            case "plan.stop.atr_mult":
+                return "止损ATR倍数";
+            case "plan.target.high_lookback_mult":
+                return "目标价回看高点系数";
+            case "position.single.maxPct":
+                return "系统单票仓位上限";
+            case "position.total.maxPct":
+                return "系统总仓位上限";
+            case "report.position.max_single_pct":
+                return "报告单票仓位上限(%)";
+            case "report.position.max_total_pct":
+                return "报告总仓位上限(%)";
+            case "polymarket.enabled":
+                return "是否启用Polymarket信号";
+            case "polymarket.impact.mode":
+                return "Polymarket影响模式";
+            case "watchlist.path":
+                return "自选股文件路径";
+            case "watchlist.non_jp_handling":
+                return "非日股处理策略";
+            case "watchlist.default_market_for_alpha":
+                return "字母代码默认市场";
+            default:
+                return "关键运行参数";
+        }
+    }
+
+/**
  * 方法说明：tile，负责执行业务逻辑并产出结果。
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
@@ -1710,6 +1860,3 @@ public final class ReportBuilder {
         }
     }
 }
-
-
-

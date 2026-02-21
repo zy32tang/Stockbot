@@ -100,10 +100,19 @@ public final class DailyRunner {
     private static final String OWNER_RISK = "com.stockbot.jp.strategy.RiskFilter#evaluate(...)";
     private static final String OWNER_SCORE = "com.stockbot.jp.strategy.ScoringEngine#score(...)";
     private static final List<String> DIAGNOSTIC_CONFIG_KEYS = List.of(
+            "app.zone",
+            "app.schedule.enabled",
+            "schedule.zone",
+            "schedule.times",
+            "schedule.time",
+            "report.dir",
+            "scan.top_n",
+            "scan.market_reference_top_n",
             "scan.min_score",
             "scan.min_history_bars",
             "scan.fresh_days",
             "scan.cache.fresh_days",
+            "backtest.hold_days",
             "report.top5.skip_on_partial",
             "report.top5.min_fetch_coverage_pct",
             "report.top5.allow_partial_when_coverage_ge",
@@ -111,6 +120,14 @@ public final class DailyRunner {
             "report.metrics.top5_perf.win_rate_30d",
             "report.metrics.top5_perf.max_drawdown_30d",
             "report.coverage.show_scope",
+            "report.mode.intraday.hideEntry",
+            "report.advice.fetch_low_pct",
+            "report.advice.indicator_low_pct",
+            "report.advice.fetch_warn_pct",
+            "report.advice.candidate_try_max",
+            "report.advice.avg_score_try_threshold",
+            "report.score.tier.focus_threshold",
+            "report.score.tier.observe_threshold",
             "filter.min_signals",
             "filter.hard.max_drop_3d_pct",
             "risk.max_atr_pct",
@@ -2176,7 +2193,7 @@ public final class DailyRunner {
             runtimeError = e;
             report = PolymarketSignalReport.disabled("runtime_error: " + e.getClass().getSimpleName());
         }
-        boolean enabledConfig = config.getBoolean("polymarket.enabled", false);
+        boolean enabledConfig = config.getBoolean("polymarket.enabled", true);
         FeatureResolution resolution = FeatureStatusResolver.resolveFeatureStatus(
                 "polymarket.enabled",
                 enabledConfig,

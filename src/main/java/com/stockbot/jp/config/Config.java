@@ -467,7 +467,7 @@ public final class Config {
         defaults.put("watchlist.ai.news_min", "8");
         defaults.put("watchlist.ai.drop_pct_threshold", "-2.0");
 
-        defaults.put("polymarket.enabled", "false");
+        defaults.put("polymarket.enabled", "true");
         defaults.put("polymarket.gamma_base_url", "https://gamma-api.polymarket.com");
         defaults.put("polymarket.data_base_url", "https://data-api.polymarket.com");
         defaults.put("polymarket.keywords", "semiconductor,tariffs,japan,china,supply chain");

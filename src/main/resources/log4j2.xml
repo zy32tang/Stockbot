@@ -7,7 +7,7 @@
 
   <Appenders>
     <Console name="Console" target="SYSTEM_OUT">
-      <PatternLayout pattern="${LOG_PATTERN}"/>
+      <PatternLayout pattern="${LOG_PATTERN}" charset="UTF-8"/>
     </Console>
 
     <RollingFile
@@ -15,7 +15,7 @@
         fileName="${LOG_DIR}/stockbot.log"
         filePattern="${LOG_DIR}/stockbot-%d{yyyy-MM-dd}-%i.log.gz"
         append="true">
-      <PatternLayout pattern="${LOG_PATTERN}"/>
+      <PatternLayout pattern="${LOG_PATTERN}" charset="UTF-8"/>
       <Policies>
         <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
         <SizeBasedTriggeringPolicy size="20 MB"/>

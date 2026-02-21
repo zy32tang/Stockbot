@@ -461,7 +461,7 @@ public final class StockBotApplication {
         Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
         String subject = String.format(
                 Locale.US,
-                "%s 閺冦儲婀伴懖鈥崇閹躲儱鎲?%s 鐢倸婧€閸欏倽鈧啫澧?d [鏉╂劘顢?%d]",
+                "%s 决策辅助报告 %s 候选数量%d [运行#%d]",
                 settings.subjectPrefix,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(runAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size(),
@@ -498,7 +498,7 @@ public final class StockBotApplication {
         String text = "";
         String subject = String.format(
                 Locale.US,
-                "%s 閺冦儲婀伴懖鈥崇閹躲儱鎲?%s 鐢倸婧€閸欏倽鈧啫澧?d",
+                "%s 决策辅助报告 %s 候选数量%d",
                 settings.subjectPrefix,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(outcome.startedAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size()
@@ -1019,5 +1019,4 @@ public final class StockBotApplication {
         }
     }
 }
-
 

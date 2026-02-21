@@ -47,7 +47,7 @@ public final class PolymarketService {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public PolymarketSignalReport collectSignals(List<WatchlistAnalysis> watchRows) {
-        boolean enabled = config.getBoolean("polymarket.enabled", false);
+        boolean enabled = config.getBoolean("polymarket.enabled", true);
         if (!enabled) {
             return PolymarketSignalReport.disabled("未启用（config: polymarket.enabled=false）");
         }
@@ -848,4 +848,3 @@ public final class PolymarketService {
         }
     }
 }
-
