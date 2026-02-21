@@ -50,11 +50,8 @@ Fast but controllable profile:
 - `scan.cache.prefer_enabled=true`: use cache first when fresh enough.
 - `scan.cache.fresh_days=2`: cache freshness threshold (calendar days).
 - `scan.network.retry_when_cache_exists=false`: if cache exists, skip network retry (retry=0 path).
-- `stooq.request_timeout_sec=3`: shorter timeout to fail fast.
-- `stooq.retry_count=0`: disable default retry for daily full-market scan.
-- `stooq.request_pause_ms=200`: add global pause between network requests.
-- `stooq.circuit_breaker.timeout_streak=10`: pause when timeout streak is too long.
-- `stooq.circuit_breaker.cooldown_sec=60`: cooldown seconds after breaker opens.
+- `jpx.universe.request_timeout_sec=20`: JPX universe download timeout.
+- `yahoo.max_bars_per_ticker=300`: cache/history window per ticker.
 - `scan.threads=3`: lower concurrency to reduce rate-limit/timeout risk.
 - `scan.batch.max_segments_per_run=0`: each scanner run processes full market segments.
 - `scan.upsert.initial_days=300`: first bootstrap writes recent 300 bars.
@@ -89,5 +86,4 @@ Watchlist section fields:
 - AI summary is shown when gate is triggered.
 
 Resilience:
-- stooq fetch now retries (`stooq.retry_count`, `stooq.retry_sleep_ms`).
-- price history fetch now uses Yahoo first, then falls back to Stooq (cache used as final fallback).
+- price history fetch uses Yahoo and falls back to local cache.

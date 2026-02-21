@@ -1,0 +1,83 @@
+{
+    "telemetry.machineId": "c4c5520c9e12ebc72fb91b8b7eefc8ea6f9b27a4976bc69279d087ee44ad597d",
+    "telemetry.sqmId": "{801E05A4-A442-453C-A155-1626216C1B8C}",
+    "telemetry.devDeviceId": "0e1d6a98-3aaf-4f6f-b296-81286fdd912f",
+    "backupWorkspaces": {
+        "workspaces": [],
+        "folders": [
+            {
+                "folderUri": "file:///c%3A/workspace/Stockbot"
+            }
+        ],
+        "emptyWindows": [
+            {
+                "backupFolder": "1771650112483"
+            }
+        ]
+    },
+    "windowControlHeight": 35,
+    "profileAssociations": {
+        "workspaces": {
+            "file:///c%3A/workspace/Stockbot": "__default__profile__"
+        },
+        "emptyWindows": {
+            "1771650112483": "__default__profile__"
+        }
+    },
+    "theme": "vs-dark",
+    "themeBackground": "#1f1f1f",
+    "windowSplash": {
+        "zoomLevel": 0,
+        "baseTheme": "vs-dark",
+        "colorInfo": {
+            "foreground": "#cccccc",
+            "background": "#1f1f1f",
+            "editorBackground": "#1f1f1f",
+            "titleBarBackground": "#181818",
+            "titleBarBorder": "#2b2b2b",
+            "activityBarBackground": "#181818",
+            "activityBarBorder": "#2b2b2b",
+            "sideBarBackground": "#181818",
+            "sideBarBorder": "#2b2b2b",
+            "statusBarBackground": "#181818",
+            "statusBarBorder": "#2b2b2b",
+            "statusBarNoFolderBackground": "#1f1f1f"
+        },
+        "layoutInfo": {
+            "sideBarSide": "left",
+            "editorPartMinWidth": 220,
+            "titleBarHeight": 35,
+            "activityBarWidth": 48,
+            "sideBarWidth": 300,
+            "auxiliaryBarWidth": 414,
+            "statusBarHeight": 22,
+            "windowBorder": false
+        }
+    },
+    "windowsState": {
+        "lastActiveWindow": {
+            "folder": "file:///c%3A/workspace/Stockbot",
+            "backupPath": "C:\\Users\\10400\\AppData\\Roaming\\Code\\Backups\\66765764817ca881f5b7fc85cd8831ef",
+            "uiState": {
+                "mode": 0,
+                "x": 254,
+                "y": 134,
+                "width": 1202,
+                "height": 802
+            }
+        },
+        "openedWindows": []
+    },
+    "windowSplashWorkspaceOverride": {
+        "layoutInfo": {
+            "sideBarWidth": 300,
+            "auxiliaryBarWidth": 414,
+            "workspaces": {
+                "3327d76c951533e6d897f15c3eb66424": {
+                    "sideBarVisible": true,
+                    "auxiliaryBarVisible": true
+                }
+            }
+        }
+    }
+}

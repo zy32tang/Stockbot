@@ -207,7 +207,7 @@ checkpoint 存在时，以下情况会清 checkpoint 并从头开始：
 关键分支：
 
 1. `result.error != null` -> `failed++`
-2. 有 bars 且 `dataSource=stooq` -> `upsertBarsIncremental(...)`
+2. 有 bars 且 `dataSource=yahoo` -> `upsertBarsIncremental(...)`
 3. `result.candidate != null` -> 候选计数并维护 topN
 4. 进度日志：完成时必打；否则按 `scan.progress.log_every`
 
@@ -218,14 +218,13 @@ checkpoint 存在时，以下情况会清 checkpoint 并从头开始：
 1. 读取缓存 bars
 2. 若 `scan.cache.prefer_enabled=true` 且缓存足够新鲜 -> 直接走 cache
 3. 否则先抓 Yahoo（日线 2y）
-4. Yahoo 无数据再抓 Stooq（带 retry/circuit breaker）
-5. Stooq 失败但有缓存 -> cache 兜底（标记 requestFailed）
-6. 无缓存且抓取失败 -> failed
+4. Yahoo 无数据则回退到 cache（标记 requestFailed）
+5. 无缓存且抓取失败 -> failed
 
 retry 规则：
 
-- 若已有缓存且 `scan.network.retry_when_cache_exists=false` -> retry=0
-- 否则用 `stooq.retry_count`
+- 若已有缓存且 `scan.network.retry_when_cache_exists=false` -> 直接回退 cache
+- 若 `scan.network.retry_when_cache_exists=true` -> 仍优先尝试 Yahoo
 
 ### 6.3 新鲜度与可交易性闸门
 

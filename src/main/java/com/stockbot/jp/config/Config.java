@@ -342,15 +342,8 @@ public final class Config {
                 "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls");
         defaults.put("jpx.universe.refresh_days", "7");
         defaults.put("jpx.universe.force_update", "false");
-
-        defaults.put("stooq.base_url", "https://stooq.com/q/d/l/?s=%s&i=d");
-        defaults.put("stooq.request_timeout_sec", "3");
-        defaults.put("stooq.retry_count", "0");
-        defaults.put("stooq.retry_sleep_ms", "300");
-        defaults.put("stooq.request_pause_ms", "200");
-        defaults.put("stooq.max_bars_per_ticker", "300");
-        defaults.put("stooq.circuit_breaker.timeout_streak", "10");
-        defaults.put("stooq.circuit_breaker.cooldown_sec", "60");
+        defaults.put("jpx.universe.request_timeout_sec", "20");
+        defaults.put("yahoo.max_bars_per_ticker", "300");
 
         defaults.put("scan.threads", "3");
         defaults.put("scan.top_n", "15");

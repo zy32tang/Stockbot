@@ -176,7 +176,6 @@ public final class ScanResultDao {
     public Map<String, Integer> dataSourceCountsByRun(long runId) throws SQLException {
         Map<String, Integer> out = new LinkedHashMap<>();
         out.put("yahoo", 0);
-        out.put("stooq", 0);
         out.put("cache", 0);
         out.put("other", 0);
 

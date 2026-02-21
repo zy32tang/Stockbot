@@ -18,7 +18,6 @@ import com.stockbot.model.NewsItem;
 import com.stockbot.model.StockContext;
 import com.stockbot.scoring.GatePolicy;
 import com.stockbot.jp.config.Config;
-import com.stockbot.jp.data.StooqClient;
 import com.stockbot.jp.db.BarDailyDao;
 import com.stockbot.jp.db.MetadataDao;
 import com.stockbot.jp.db.RunDao;
@@ -170,7 +169,6 @@ public final class DailyRunner {
     private final BarDailyDao barDailyDao;
     private final RunDao runDao;
     private final ScanResultDao scanResultDao;
-    private final StooqClient stooqClient;
     private final IndicatorEngine indicatorEngine;
     private final CandidateFilter candidateFilter;
     private final RiskFilter riskFilter;
@@ -211,7 +209,6 @@ public final class DailyRunner {
         this.barDailyDao = barDailyDao;
         this.runDao = runDao;
         this.scanResultDao = scanResultDao;
-        this.stooqClient = new StooqClient(config);
         this.indicatorEngine = new IndicatorEngine(Math.max(5, config.getInt("stop.loss.lookbackDays", 20)));
         this.candidateFilter = new CandidateFilter(config);
         this.riskFilter = new RiskFilter(config);
@@ -252,7 +249,7 @@ public final class DailyRunner {
         this.tickerResolver = new TickerResolver(config.getString("watchlist.default_market_for_alpha", "US"));
         this.nonJpHandling = parseNonJpHandling(config.getString("watchlist.non_jp_handling", "PROCESS_SEPARATELY"));
         this.watchlistMaxAiChars = Math.max(120, config.getInt("watchlist.ai.max_chars", 900));
-        this.maxBars = Math.max(60, config.getInt("stooq.max_bars_per_ticker", 420));
+        this.maxBars = Math.max(60, config.getInt("yahoo.max_bars_per_ticker", 420));
     }
 
 /**
@@ -479,7 +476,10 @@ public final class DailyRunner {
         try {
             Optional<RunRow> latestMarketRun = runDao.findLatestMarketScanRun();
             if (latestMarketRun.isEmpty()) {
-                throw new IllegalStateException("No market scan result found. Background scanner may not have finished yet.");
+                throw new IllegalStateException(
+                        "No usable market scan result found (missing run or candidate rows). "
+                                + "Background scanner may not have finished yet, or the latest scan produced zero candidates."
+                );
             }
             RunRow marketRun = latestMarketRun.get();
 
@@ -640,7 +640,12 @@ public final class DailyRunner {
         int maxSegmentsPerRun = Math.max(0, config.getInt("scan.batch.max_segments_per_run", 0));
         int remaining = Math.max(0, plan.segments.size() - state.nextSegmentIndex);
         int allowedThisRun = maxSegmentsPerRun <= 0 ? remaining : Math.min(maxSegmentsPerRun, remaining);
-        System.out.println("Data source priority: yahoo -> stooq -> cache");
+        boolean retryWhenCacheExists = config.getBoolean("scan.network.retry_when_cache_exists", false);
+        if (retryWhenCacheExists) {
+            System.out.println("Data source priority: cache(fresh) -> yahoo -> cache(retry_enabled)");
+        } else {
+            System.out.println("Data source priority: cache(fresh) -> yahoo -> cache");
+        }
 
         for (int offset = 0; offset < allowedThisRun; offset++) {
             int segmentIndex = state.nextSegmentIndex;
@@ -1018,9 +1023,9 @@ public final class DailyRunner {
             Map<String, UniverseRecord> byTicker
     ) {
         String normalized = tickerSpec == null ? "" : tickerSpec.normalized;
-        String stooqTicker = toStooqTicker(normalized);
-        if (!stooqTicker.isEmpty()) {
-            UniverseRecord exactTicker = byTicker.get(stooqTicker.toLowerCase(Locale.ROOT));
+        String jpTicker = toJpTicker(normalized);
+        if (!jpTicker.isEmpty()) {
+            UniverseRecord exactTicker = byTicker.get(jpTicker.toLowerCase(Locale.ROOT));
             if (exactTicker != null) {
                 return exactTicker;
             }
@@ -1037,7 +1042,7 @@ public final class DailyRunner {
         String fallbackCode = code.isEmpty() ? extractCode(tickerSpec == null ? "" : tickerSpec.raw) : code;
         String fallbackName = tickerSpec == null || tickerSpec.raw.isEmpty() ? normalized : tickerSpec.raw;
         return new UniverseRecord(
-                stooqTicker.isEmpty() ? normalized.toLowerCase(Locale.ROOT) : stooqTicker.toLowerCase(Locale.ROOT),
+                jpTicker.isEmpty() ? normalized.toLowerCase(Locale.ROOT) : jpTicker.toLowerCase(Locale.ROOT),
                 fallbackCode,
                 fallbackName,
                 "WATCHLIST_JP"
@@ -1069,11 +1074,11 @@ public final class DailyRunner {
     }
 
 /**
- * 方法说明：toStooqTicker，负责转换数据结构用于后续处理。
+ * 方法说明：toJpTicker，负责转换数据结构用于后续处理。
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
-    private String toStooqTicker(String normalizedTicker) {
+    private String toJpTicker(String normalizedTicker) {
         String token = normalizedTicker == null ? "" : normalizedTicker.trim();
         if (token.isEmpty()) {
             return "";
@@ -1192,10 +1197,10 @@ public final class DailyRunner {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
-    private PriceFetchTrace fetchWatchPriceTrace(String stooqTicker, String yahooTicker) {
+    private PriceFetchTrace fetchWatchPriceTrace(String jpTicker, String yahooTicker) {
         long started = System.nanoTime();
 
-        List<BarDaily> fromYahoo = fetchBarsFromYahoo(stooqTicker, yahooTicker);
+        List<BarDaily> fromYahoo = fetchBarsFromYahoo(jpTicker, yahooTicker);
         if (!fromYahoo.isEmpty()) {
             return PriceFetchTrace.fromBars(
                     fromYahoo,
@@ -1209,51 +1214,27 @@ public final class DailyRunner {
             );
         }
 
-        String requestCategory = "";
-        String requestError = "";
-        try {
-            int retryLimit = Math.max(0, config.getInt("stooq.retry_count", 2));
-            StooqClient.FetchDailyResult stooq = stooqClient.fetchDailyProfiled(stooqTicker, retryLimit);
-            if (stooq.success && stooq.bars != null && !stooq.bars.isEmpty()) {
-                return PriceFetchTrace.fromBars(
-                        stooq.bars,
-                        "stooq",
-                        false,
-                        nanosToMillis(System.nanoTime() - started),
-                        false,
-                        "",
-                        "",
-                        "yahoo->stooq"
-                );
-            }
-            requestCategory = normalizeRequestFailureCategory(stooq.errorCategory, stooq.error);
-            requestError = safeText(stooq.error);
-        } catch (Exception e) {
-            requestCategory = normalizeRequestFailureCategory("other", e.getMessage());
-            requestError = e.getMessage() == null ? "stooq_failed" : e.getMessage();
-        }
-
-        List<BarDaily> cached = loadCachedBars(stooqTicker);
+        List<BarDaily> cached = loadCachedBars(jpTicker);
         if (!cached.isEmpty()) {
             return PriceFetchTrace.fromBars(
                     cached,
                     "cache",
                     true,
                     nanosToMillis(System.nanoTime() - started),
-                    !requestCategory.isEmpty(),
-                    requestCategory,
-                    requestError,
-                    "yahoo->stooq->cache"
+                    true,
+                    "no_data",
+                    "no_data",
+                    "yahoo->cache"
             );
         }
 
         return PriceFetchTrace.failed(
                 "fetch_failed",
                 nanosToMillis(System.nanoTime() - started),
-                !requestCategory.isEmpty(),
-                requestCategory,
-                requestError.isEmpty() ? "no_data" : requestError,
-                "yahoo->stooq->cache->failed"
+                true,
+                "no_data",
+                "no_data",
+                "yahoo->cache->failed"
         );
     }
 
@@ -1288,13 +1269,13 @@ public final class DailyRunner {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
-    private List<BarDaily> fetchBarsFromYahoo(String stooqTicker, String yahooTicker) {
+    private List<BarDaily> fetchBarsFromYahoo(String jpTicker, String yahooTicker) {
         if (yahooTicker == null || yahooTicker.trim().isEmpty()) {
             return List.of();
         }
         try {
-            List<DailyPrice> history = marketDataService.fetchDailyHistory(yahooTicker, "2y", "1d");
-            return toBarsFromYahoo(stooqTicker, history);
+            List<MarketDataService.DailyBar> history = marketDataService.fetchDailyHistoryBars(yahooTicker, "2y", "1d");
+            return toBarsFromYahoo(jpTicker, history);
         } catch (Exception ignored) {
             return List.of();
         }
@@ -1505,10 +1486,7 @@ public final class DailyRunner {
     private String resolveFetcherClass(String dataSource) {
         String src = safeText(dataSource).toLowerCase(Locale.ROOT);
         if ("yahoo".equals(src)) {
-            return "com.stockbot.data.MarketDataService#fetchDailyHistory(...)";
-        }
-        if ("stooq".equals(src)) {
-            return "com.stockbot.jp.data.StooqClient#fetchDailyProfiled(...)";
+            return "com.stockbot.data.MarketDataService#fetchDailyHistoryBars(...)";
         }
         if ("cache".equals(src)) {
             return "com.stockbot.jp.db.BarDailyDao#loadRecentBars(...)";
@@ -1602,16 +1580,26 @@ public final class DailyRunner {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
-    private List<BarDaily> toBarsFromYahoo(String stooqTicker, List<DailyPrice> history) {
+    private List<BarDaily> toBarsFromYahoo(String jpTicker, List<MarketDataService.DailyBar> history) {
         if (history == null || history.isEmpty()) {
             return List.of();
         }
         List<BarDaily> out = new ArrayList<>(history.size());
-        for (DailyPrice p : history) {
+        for (MarketDataService.DailyBar p : history) {
             if (p == null || p.date == null || !Double.isFinite(p.close) || p.close <= 0.0) {
                 continue;
             }
-            out.add(new BarDaily(stooqTicker, p.date, p.close, p.close, p.close, p.close, 0.0));
+            double open = (Double.isFinite(p.open) && p.open > 0.0) ? p.open : p.close;
+            double high = (Double.isFinite(p.high) && p.high > 0.0) ? p.high : Math.max(open, p.close);
+            double low = (Double.isFinite(p.low) && p.low > 0.0) ? p.low : Math.min(open, p.close);
+            if (high < Math.max(open, p.close)) {
+                high = Math.max(open, p.close);
+            }
+            if (low > Math.min(open, p.close)) {
+                low = Math.min(open, p.close);
+            }
+            double volume = (Double.isFinite(p.volume) && p.volume > 0.0) ? p.volume : 0.0;
+            out.add(new BarDaily(jpTicker, p.date, open, high, low, p.close, volume));
         }
         return out;
     }
@@ -2061,18 +2049,15 @@ public final class DailyRunner {
         }
         if (out.isEmpty() && fallbackStats != null) {
             out.put("yahoo", fallbackStats.sourceYahooCount);
-            out.put("stooq", fallbackStats.sourceStooqCount);
             out.put("cache", fallbackStats.sourceCacheCount);
             out.put("other", fallbackStats.sourceUnknownCount);
         }
         if (out.isEmpty()) {
             out.put("yahoo", 0);
-            out.put("stooq", 0);
             out.put("cache", 0);
             out.put("other", 0);
         }
         diagnostics.addDataSourceStat("market_yahoo", out.getOrDefault("yahoo", 0));
-        diagnostics.addDataSourceStat("market_stooq", out.getOrDefault("stooq", 0));
         diagnostics.addDataSourceStat("market_cache", out.getOrDefault("cache", 0));
         diagnostics.addDataSourceStat("market_other", out.getOrDefault("other", 0));
     }
@@ -2348,7 +2333,7 @@ public final class DailyRunner {
                         stats.failed++;
                     } else {
                         if (result.bars != null && !result.bars.isEmpty()) {
-                            boolean shouldUpsert = "stooq".equalsIgnoreCase(safeText(result.dataSource));
+                            boolean shouldUpsert = "yahoo".equalsIgnoreCase(safeText(result.dataSource));
                             if (shouldUpsert) {
                                 long upsertStarted = System.nanoTime();
                                 try {
@@ -2357,7 +2342,7 @@ public final class DailyRunner {
                                     int upsertedBars = barDailyDao.upsertBarsIncremental(
                                             result.universe.ticker,
                                             result.bars,
-                                            "stooq",
+                                            "yahoo",
                                             initialDays,
                                             recentDays
                                     );
@@ -2455,7 +2440,7 @@ public final class DailyRunner {
         ));
         System.out.println(String.format(
                 Locale.US,
-                "Stage metrics: download(avg=%.1fms,total=%.2fs,n=%d) parse(avg=%.1fms,total=%.2fs,n=%d) upsert(avg=%.1fms,total=%.2fs,ops=%d,bars=%d) source(yahoo=%d,stooq=%d,cache=%d,unknown=%d) coverage(fetch=%d,indicator=%d) failure(timeout=%d,http_404/no_data=%d,parse_error=%d,rate_limit=%d,stale=%d,history_short=%d,filtered_non_tradable=%d,other=%d)",
+                "Stage metrics: download(avg=%.1fms,total=%.2fs,n=%d) parse(avg=%.1fms,total=%.2fs,n=%d) upsert(avg=%.1fms,total=%.2fs,ops=%d,bars=%d) source(yahoo=%d,cache=%d,unknown=%d) coverage(fetch=%d,indicator=%d) failure(timeout=%d,http_404/no_data=%d,parse_error=%d,rate_limit=%d,stale=%d,history_short=%d,filtered_non_tradable=%d,other=%d)",
                 avgMillis(stats.downloadNanosTotal, stats.downloadCount),
                 seconds(stats.downloadNanosTotal),
                 stats.downloadCount,
@@ -2467,7 +2452,6 @@ public final class DailyRunner {
                 stats.upsertOps,
                 stats.upsertBarCount,
                 stats.sourceYahooCount,
-                stats.sourceStooqCount,
                 stats.sourceCacheCount,
                 stats.sourceUnknownCount,
                 stats.fetchCoverageCount,
@@ -2536,20 +2520,19 @@ public final class DailyRunner {
         String msg = errorMessage == null ? "" : errorMessage.trim().toLowerCase(Locale.ROOT);
 
         if (raw.isEmpty()) {
-            raw = StooqClient.classifyFailureMessage(errorMessage);
+            raw = msg;
         }
 
-        if (raw.contains("timeout")) {
+        if (raw.contains("timeout") || msg.contains("timed out")) {
             return "timeout";
         }
-        if ("no_data".equals(raw)) {
+        if ("no_data".equals(raw) || msg.contains("no_data") || msg.contains("404")) {
             return "no_data";
         }
-        if ("rate_limit".equals(raw)) {
+        if ("rate_limit".equals(raw) || msg.contains("rate limit")) {
             return "rate_limit";
         }
         if ("parse_error".equals(raw)
-                || msg.contains("unexpected_stooq_payload")
                 || msg.contains("parse")
                 || msg.contains("json")) {
             return "parse_error";
@@ -2600,8 +2583,11 @@ public final class DailyRunner {
             boolean retryWhenCacheExists = config.getBoolean("scan.network.retry_when_cache_exists", false);
 
             List<BarDaily> cachedBars = loadCachedBars(universe.ticker);
+            boolean cacheHasScreeningShape = hasScreeningShape(cachedBars);
             String yahooTicker = toYahooTicker(universe);
-            if (cachePreferEnabled && isCacheFreshEnough(cachedBars, minHistoryBars, cacheFreshDays)) {
+            if (cachePreferEnabled
+                    && isCacheFreshEnough(cachedBars, minHistoryBars, cacheFreshDays)
+                    && cacheHasScreeningShape) {
                 return evaluateBars(
                         universe,
                         cachedBars,
@@ -2616,6 +2602,35 @@ public final class DailyRunner {
             }
 
             List<BarDaily> yahooBars = fetchBarsFromYahoo(universe.ticker, yahooTicker);
+            boolean yahooHasScreeningShape = hasScreeningShape(yahooBars);
+            if (!yahooBars.isEmpty() && yahooHasScreeningShape) {
+                return evaluateBars(
+                        universe,
+                        yahooBars,
+                        0L,
+                        0L,
+                        "yahoo",
+                        false,
+                        "",
+                        nanosToMillis(System.nanoTime() - started),
+                        ScanFailureReason.NONE
+                );
+            }
+
+            if (!cachedBars.isEmpty() && !retryWhenCacheExists) {
+                return evaluateBars(
+                        universe,
+                        cachedBars,
+                        0L,
+                        0L,
+                        "cache",
+                        false,
+                        "",
+                        nanosToMillis(System.nanoTime() - started),
+                        ScanFailureReason.NONE
+                );
+            }
+
             if (!yahooBars.isEmpty()) {
                 return evaluateBars(
                         universe,
@@ -2630,59 +2645,28 @@ public final class DailyRunner {
                 );
             }
 
-            int retryLimit = !cachedBars.isEmpty() && !retryWhenCacheExists
-                    ? 0
-                    : Math.max(0, config.getInt("stooq.retry_count", 2));
-            StooqClient.FetchDailyResult fetched = stooqClient.fetchDailyProfiled(universe.ticker, retryLimit);
-
-            if (fetched.success && fetched.bars != null && !fetched.bars.isEmpty()) {
-                return evaluateBars(
-                        universe,
-                        fetched.bars,
-                        fetched.downloadNanos,
-                        fetched.parseNanos,
-                        "stooq",
-                        false,
-                        "",
-                        nanosToMillis(System.nanoTime() - started),
-                        ScanFailureReason.NONE
-                );
-            }
-
-            String requestCategory = fetched.success
-                    ? "no_data"
-                    : normalizeRequestFailureCategory(fetched.errorCategory, fetched.error);
-            ScanFailureReason requestReason = requestFailureReason(requestCategory);
-            boolean requestFailed = true;
-
             if (!cachedBars.isEmpty()) {
                 return evaluateBars(
                         universe,
                         cachedBars,
-                        fetched.downloadNanos,
-                        fetched.parseNanos,
+                        0L,
+                        0L,
                         "cache",
-                        requestFailed,
-                        requestCategory,
+                        true,
+                        "no_data",
                         nanosToMillis(System.nanoTime() - started),
-                        requestReason
+                        ScanFailureReason.HTTP_404_NO_DATA
                 );
             }
 
-            String message = fetched.success
-                    ? "no_data"
-                    : "fetch_failed:" + safeText(fetched.error);
-            ScanFailureReason finalReason = requestReason == ScanFailureReason.NONE
-                    ? ScanFailureReason.HTTP_404_NO_DATA
-                    : requestReason;
             return TickerScanResult.failed(
                     universe,
-                    message,
-                    fetched.downloadNanos,
-                    fetched.parseNanos,
-                    "stooq",
-                    requestFailed,
-                    requestCategory,
+                    "no_data",
+                    0L,
+                    0L,
+                    "yahoo",
+                    true,
+                    "no_data",
                     nanosToMillis(System.nanoTime() - started),
                     false,
                     0,
@@ -2690,7 +2674,7 @@ public final class DailyRunner {
                     Double.NaN,
                     false,
                     DataInsufficientReason.NO_DATA,
-                    finalReason
+                    ScanFailureReason.HTTP_404_NO_DATA
             );
         } catch (Exception e) {
             return TickerScanResult.failed(
@@ -3041,6 +3025,23 @@ public final class DailyRunner {
             return false;
         }
         return isBarsFreshEnough(bars, freshDays);
+    }
+
+    private boolean hasScreeningShape(List<BarDaily> bars) {
+        if (bars == null || bars.isEmpty()) {
+            return false;
+        }
+        for (BarDaily bar : bars) {
+            if (bar == null) {
+                continue;
+            }
+            boolean hasVolume = Double.isFinite(bar.volume) && bar.volume > 0.0;
+            boolean hasRange = Math.abs(bar.high - bar.low) > 1e-9 || Math.abs(bar.open - bar.close) > 1e-9;
+            if (hasVolume || hasRange) {
+                return true;
+            }
+        }
+        return false;
     }
 
 /**
@@ -3560,7 +3561,6 @@ public final class DailyRunner {
         int upsertOps;
         long upsertBarCount;
         int sourceYahooCount;
-        int sourceStooqCount;
         int sourceCacheCount;
         int sourceUnknownCount;
         final EnumMap<ScanFailureReason, Integer> failureReasonCounts = new EnumMap<>(ScanFailureReason.class);
@@ -3608,7 +3608,6 @@ public final class DailyRunner {
             upsertOps += other.upsertOps;
             upsertBarCount += other.upsertBarCount;
             sourceYahooCount += other.sourceYahooCount;
-            sourceStooqCount += other.sourceStooqCount;
             sourceCacheCount += other.sourceCacheCount;
             sourceUnknownCount += other.sourceUnknownCount;
             for (ScanFailureReason reason : ScanFailureReason.values()) {
@@ -3655,8 +3654,6 @@ public final class DailyRunner {
             String src = dataSource == null ? "" : dataSource.trim().toLowerCase(Locale.ROOT);
             if ("yahoo".equals(src)) {
                 sourceYahooCount++;
-            } else if ("stooq".equals(src)) {
-                sourceStooqCount++;
             } else if ("cache".equals(src)) {
                 sourceCacheCount++;
             } else {

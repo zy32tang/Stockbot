@@ -100,7 +100,7 @@ public final class JpxUniverseUpdater {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     private byte[] download(String url) throws Exception {
-        int timeoutSec = Math.max(10, config.getInt("stooq.request_timeout_sec", 20));
+        int timeoutSec = Math.max(10, config.getInt("jpx.universe.request_timeout_sec", 20));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(timeoutSec))

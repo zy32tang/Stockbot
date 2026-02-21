@@ -1,0 +1,15 @@
+{
+  message: "Use the JDK from '' as the initial default project JDK.",
+  level: 'info',
+  timestamp: '2026-02-21 14:21:11.496'
+}
+{
+  message: 'Starting Java server with: c:\\Users\\10400\\.vscode\\extensions\\redhat.java-1.52.0-win32-x64\\jre\\21.0.9-win32-x86_64\\bin\\java --add-modules=ALL-SYSTEM --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/sun.nio.fs=ALL-UNNAMED -Declipse.application=org.eclipse.jdt.ls.core.id1 -Dosgi.bundles.defaultStartLevel=4 -Declipse.product=org.eclipse.jdt.ls.core.product -Djava.import.generatesMetadataFilesAtProjectRoot=false -DDetectVMInstallationsJob.disabled=true -Dfile.encoding=utf8 -XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx2G -Xms100m -Xlog:disable -javaagent:c:\\Users\\10400\\.vscode\\extensions\\redhat.java-1.52.0-win32-x64\\lombok\\lombok-1.18.39-4050.jar -jar c:\\Users\\10400\\.vscode\\extensions\\redhat.java-1.52.0-win32-x64\\server\\plugins\\org.eclipse.equinox.launcher_1.7.100.v20251111-0406.jar -configuration c:\\Users\\10400\\AppData\\Roaming\\Code\\User\\globalStorage\\redhat.java\\1.52.0\\config_ss_win -data c:\\Users\\10400\\AppData\\Roaming\\Code\\User\\workspaceStorage\\3327d76c951533e6d897f15c3eb66424\\redhat.java\\ss_ws',
+  level: 'info',
+  timestamp: '2026-02-21 14:21:11.551'
+}
+{
+  message: 'Starting Java server with: c:\\Users\\10400\\.vscode\\extensions\\redhat.java-1.52.0-win32-x64\\jre\\21.0.9-win32-x86_64\\bin\\java --add-modules=ALL-SYSTEM --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/sun.nio.fs=ALL-UNNAMED -Declipse.application=org.eclipse.jdt.ls.core.id1 -Dosgi.bundles.defaultStartLevel=4 -Declipse.product=org.eclipse.jdt.ls.core.product -Djava.import.generatesMetadataFilesAtProjectRoot=false -DDetectVMInstallationsJob.disabled=true -Dfile.encoding=utf8 -XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx2G -Xms100m -Xlog:disable -javaagent:c:\\Users\\10400\\.vscode\\extensions\\redhat.java-1.52.0-win32-x64\\lombok\\lombok-1.18.39-4050.jar -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=c:\\Users\\10400\\AppData\\Roaming\\Code\\User\\workspaceStorage\\3327d76c951533e6d897f15c3eb66424\\redhat.java -Daether.dependencyCollector.impl=bf -jar c:\\Users\\10400\\.vscode\\extensions\\redhat.java-1.52.0-win32-x64\\server\\plugins\\org.eclipse.equinox.launcher_1.7.100.v20251111-0406.jar -configuration c:\\Users\\10400\\AppData\\Roaming\\Code\\User\\globalStorage\\redhat.java\\1.52.0\\config_win -data c:\\Users\\10400\\AppData\\Roaming\\Code\\User\\workspaceStorage\\3327d76c951533e6d897f15c3eb66424\\redhat.java\\jdt_ws',
+  level: 'info',
+  timestamp: '2026-02-21 14:21:17.555'
+}
