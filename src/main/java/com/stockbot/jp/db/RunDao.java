@@ -10,133 +10,62 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 
 /**
- * 模块说明：RunDao（class）。
- * 主要职责：承载 db 模块 的关键逻辑，对外提供可复用的调用入口。
- * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ * DAO for run/candidate persistence.
  */
 public final class RunDao {
     private final Database database;
 
-/**
- * 方法说明：RunDao，负责初始化对象并装配依赖参数。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public RunDao(Database database) {
         this.database = database;
     }
 
-/**
- * 方法说明：recoverDanglingRuns，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public void recoverDanglingRuns() {
-        try (Connection conn = database.connect()) {
-            Set<String> columns = getColumns(conn, "runs");
-            if (!columns.contains("status")) {
-                return;
-            }
-            List<String> setParts = new ArrayList<>();
-            setParts.add("status='ABORTED'");
-            boolean hasFinishedAt = columns.contains("finished_at");
-            if (hasFinishedAt) {
-                setParts.add("finished_at=?");
-            }
-            if (columns.contains("notes")) {
-                setParts.add("notes=COALESCE(notes, '') || ';recovered_on_startup'");
-            }
-            String where = "status='RUNNING'";
-            String sql = "UPDATE runs SET " + String.join(", ", setParts) + " WHERE " + where;
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                if (hasFinishedAt) {
-                    ps.setString(1, Instant.now().toString());
-                }
-                ps.executeUpdate();
-            }
+        String sql = "UPDATE runs SET status='ABORTED', finished_at=?, notes=COALESCE(notes, '') || ';recovered_on_startup' " +
+                "WHERE status='RUNNING'";
+        try (Connection conn = database.connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setObject(1, OffsetDateTime.now(ZoneOffset.UTC));
+            ps.executeUpdate();
         } catch (SQLException ignored) {
-            // Old/partial schemas should not block startup.
+            // Keep startup resilient if schema is partially initialized.
         }
     }
 
-/**
- * 方法说明：startRun，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public long startRun(String mode, String notes) throws SQLException {
-        Instant now = Instant.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        String insertRunSql = "INSERT INTO runs(mode, started_at, status, notes) VALUES(?, ?, ?, ?)";
+
         try (Connection conn = database.connect()) {
-            Set<String> columns = getColumns(conn, "runs");
-            List<String> names = new ArrayList<>();
-            List<Object> values = new ArrayList<>();
-
-            if (columns.contains("mode")) {
-                names.add("mode");
-                values.add(mode);
-            }
-            if (columns.contains("run_mode")) {
-                names.add("run_mode");
-                values.add(mode);
-            }
-            if (columns.contains("started_at")) {
-                names.add("started_at");
-                values.add(now.toString());
-            }
-            if (columns.contains("run_at")) {
-                names.add("run_at");
-                values.add(now.toString());
-            }
-            if (columns.contains("status")) {
-                names.add("status");
-                values.add("RUNNING");
-            }
-            if (columns.contains("notes")) {
-                names.add("notes");
-                values.add(notes);
-            }
-            if (columns.contains("label")) {
-                names.add("label");
-                values.add(mode);
-            }
-            if (columns.contains("ai_targets")) {
-                names.add("ai_targets");
-                values.add(0);
-            }
-
-            if (names.isEmpty()) {
-                throw new SQLException("runs table has no writable columns");
-            }
-
-            String sql = "INSERT INTO runs(" + String.join(", ", names) + ") VALUES(" + placeholders(values.size()) + ")";
-            try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-                for (int i = 0; i < values.size(); i++) {
-                    ps.setObject(i + 1, values.get(i));
-                }
+            conn.setAutoCommit(false);
+            long runId;
+            try (PreparedStatement ps = conn.prepareStatement(insertRunSql, Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, mode);
+                ps.setObject(2, now);
+                ps.setString(3, "RUNNING");
+                ps.setString(4, notes);
                 ps.executeUpdate();
                 try (ResultSet rs = ps.getGeneratedKeys()) {
-                    if (rs.next()) {
-                        return rs.getLong(1);
+                    if (!rs.next()) {
+                        throw new SQLException("failed to create run");
                     }
+                    runId = rs.getLong(1);
                 }
             }
+
+            insertRunLog(conn, Long.toString(runId), mode, now, null, "START", null, "RUNNING", notes);
+            conn.commit();
+            return runId;
         }
-        throw new SQLException("failed to create run");
     }
 
-/**
- * 方法说明：finishRun，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public void finishRun(
             long runId,
             String status,
@@ -149,9 +78,12 @@ public final class RunDao {
     ) throws SQLException {
         String sql = "UPDATE runs SET finished_at=?, status=?, universe_size=?, scanned_size=?, " +
                 "candidate_size=?, top_n=?, report_path=?, notes=? WHERE id=?";
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
         try (Connection conn = database.connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, Instant.now().toString());
+            conn.setAutoCommit(false);
+            ps.setObject(1, now);
             ps.setString(2, status);
             ps.setInt(3, universeSize);
             ps.setInt(4, scannedSize);
@@ -161,49 +93,61 @@ public final class RunDao {
             ps.setString(8, notes);
             ps.setLong(9, runId);
             ps.executeUpdate();
-        }
-    }
 
-/**
- * 方法说明：insertCandidates，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    public void insertCandidates(long runId, List<ScoredCandidate> candidates) throws SQLException {
-        if (candidates == null || candidates.isEmpty()) {
-            return;
-        }
-        String sql = "INSERT INTO candidates(run_id, rank_no, ticker, code, name, market, score, close, reasons_json, indicators_json, created_at) " +
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        Instant now = Instant.now();
-        try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            conn.setAutoCommit(false);
-            int rank = 1;
-            for (ScoredCandidate c : candidates) {
-                ps.setLong(1, runId);
-                ps.setInt(2, rank++);
-                ps.setString(3, c.ticker);
-                ps.setString(4, c.code);
-                ps.setString(5, c.name);
-                ps.setString(6, c.market);
-                ps.setDouble(7, c.score);
-                ps.setDouble(8, c.close);
-                ps.setString(9, c.reasonsJson);
-                ps.setString(10, c.indicatorsJson);
-                ps.setString(11, now.toString());
-                ps.addBatch();
-            }
-            ps.executeBatch();
+            String mode = findRunMode(conn, runId).orElse("UNKNOWN");
+            insertRunLog(conn, Long.toString(runId), mode, now, now, "FINISH", null, status, notes);
             conn.commit();
         }
     }
 
-/**
- * 方法说明：listRecentRuns，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
+    public void insertCandidates(long runId, List<ScoredCandidate> candidates) throws SQLException {
+        if (candidates == null || candidates.isEmpty()) {
+            return;
+        }
+        String candidateSql = "INSERT INTO candidates(run_id, rank_no, ticker, code, name, market, score, close, reasons_json, indicators_json, created_at) " +
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String signalSql = "INSERT INTO signals(run_id, ticker, as_of, score, risk_level, signal_state, position_pct, reason) " +
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        try (Connection conn = database.connect();
+             PreparedStatement candidatePs = conn.prepareStatement(candidateSql);
+             PreparedStatement signalPs = conn.prepareStatement(signalSql)) {
+            conn.setAutoCommit(false);
+            int rank = 1;
+            for (ScoredCandidate c : candidates) {
+                if (c == null) {
+                    continue;
+                }
+                candidatePs.setLong(1, runId);
+                candidatePs.setInt(2, rank++);
+                candidatePs.setString(3, c.ticker);
+                candidatePs.setString(4, c.code);
+                candidatePs.setString(5, c.name);
+                candidatePs.setString(6, c.market);
+                candidatePs.setDouble(7, c.score);
+                candidatePs.setObject(8, Double.isFinite(c.close) ? c.close : null);
+                candidatePs.setString(9, c.reasonsJson);
+                candidatePs.setString(10, c.indicatorsJson);
+                candidatePs.setObject(11, now);
+                candidatePs.addBatch();
+
+                signalPs.setString(1, Long.toString(runId));
+                signalPs.setString(2, c.ticker);
+                signalPs.setObject(3, now);
+                signalPs.setDouble(4, c.score);
+                signalPs.setString(5, null);
+                signalPs.setString(6, "CANDIDATE");
+                signalPs.setObject(7, null);
+                signalPs.setString(8, c.reasonsJson);
+                signalPs.addBatch();
+            }
+            candidatePs.executeBatch();
+            signalPs.executeBatch();
+            conn.commit();
+        }
+    }
+
     public List<RunRow> listRecentRuns(int limit) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs ORDER BY id DESC LIMIT ?";
@@ -220,11 +164,6 @@ public final class RunDao {
         return out;
     }
 
-/**
- * 方法说明：listSuccessfulDailyRuns，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public List<RunRow> listSuccessfulDailyRuns(int limit) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs WHERE mode='DAILY' AND status='SUCCESS' ORDER BY id DESC LIMIT ?";
@@ -241,11 +180,6 @@ public final class RunDao {
         return out;
     }
 
-/**
- * 方法说明：findLatestDailyRunWithReport，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public Optional<RunRow> findLatestDailyRunWithReport() throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs " +
@@ -264,11 +198,6 @@ public final class RunDao {
         return Optional.empty();
     }
 
-/**
- * 方法说明：findLatestMarketScanRun，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public Optional<RunRow> findLatestMarketScanRun() throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs r " +
@@ -286,11 +215,6 @@ public final class RunDao {
         return Optional.empty();
     }
 
-/**
- * 方法说明：findById，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public Optional<RunRow> findById(long runId) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs WHERE id=? LIMIT 1";
@@ -306,11 +230,6 @@ public final class RunDao {
         return Optional.empty();
     }
 
-/**
- * 方法说明：findLatestRunWithCandidatesBefore，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public Optional<RunRow> findLatestRunWithCandidatesBefore(long beforeRunId) throws SQLException {
         String sql = "SELECT id, mode, started_at, finished_at, status, universe_size, scanned_size, candidate_size, top_n, report_path, notes " +
                 "FROM runs r " +
@@ -330,11 +249,6 @@ public final class RunDao {
         return Optional.empty();
     }
 
-/**
- * 方法说明：listCandidates，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public List<CandidateRow> listCandidates(long runId, int topK) throws SQLException {
         String sql = "SELECT run_id, rank_no, ticker, code, name, score, close " +
                 "FROM candidates WHERE run_id=? ORDER BY rank_no ASC LIMIT ?";
@@ -361,11 +275,6 @@ public final class RunDao {
         return out;
     }
 
-/**
- * 方法说明：listScoredCandidates，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public List<ScoredCandidate> listScoredCandidates(long runId, int topK) throws SQLException {
         String sql = "SELECT ticker, code, name, market, score, close, reasons_json, indicators_json " +
                 "FROM candidates WHERE run_id=? ORDER BY rank_no ASC LIMIT ?";
@@ -392,11 +301,6 @@ public final class RunDao {
         return out;
     }
 
-/**
- * 方法说明：listCandidateTickers，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public List<String> listCandidateTickers(long runId, int limit) throws SQLException {
         String sql = "SELECT ticker FROM candidates WHERE run_id=? ORDER BY rank_no ASC LIMIT ?";
         List<String> out = new ArrayList<>();
@@ -416,11 +320,6 @@ public final class RunDao {
         return out;
     }
 
-/**
- * 方法说明：summarizeRecentRuns，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public String summarizeRecentRuns(int limit) throws SQLException {
         List<RunRow> runs = listRecentRuns(limit);
         if (runs.isEmpty()) {
@@ -444,14 +343,9 @@ public final class RunDao {
         return sb.toString().trim();
     }
 
-/**
- * 方法说明：mapRun，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     private RunRow mapRun(ResultSet rs) throws SQLException {
-        Instant started = parseInstant(rs.getString("started_at"));
-        Instant finished = parseInstant(rs.getString("finished_at"));
+        Instant started = toInstant(rs, "started_at");
+        Instant finished = toInstant(rs, "finished_at");
         return new RunRow(
                 rs.getLong("id"),
                 rs.getString("mode"),
@@ -467,54 +361,56 @@ public final class RunDao {
         );
     }
 
-/**
- * 方法说明：parseInstant，负责解析输入内容并转换结构。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private Instant parseInstant(String text) {
-        if (text == null || text.isEmpty()) {
+    private Instant toInstant(ResultSet rs, String column) throws SQLException {
+        OffsetDateTime odt = rs.getObject(column, OffsetDateTime.class);
+        if (odt != null) {
+            return odt.toInstant();
+        }
+        String text = rs.getString(column);
+        if (text == null || text.trim().isEmpty()) {
             return null;
         }
         try {
-            return Instant.parse(text);
+            return Instant.parse(text.trim());
         } catch (Exception ignored) {
             return null;
         }
     }
 
-/**
- * 方法说明：getColumns，负责获取数据并返回结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private Set<String> getColumns(Connection conn, String table) throws SQLException {
-        Set<String> out = new HashSet<>();
-        try (PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(" + table + ")");
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String name = rs.getString("name");
-                if (name != null) {
-                    out.add(name.toLowerCase(Locale.ROOT));
+    private Optional<String> findRunMode(Connection conn, long runId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("SELECT mode FROM runs WHERE id=?")) {
+            ps.setLong(1, runId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.ofNullable(rs.getString("mode"));
                 }
             }
         }
-        return out;
+        return Optional.empty();
     }
 
-/**
- * 方法说明：placeholders，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String placeholders(int n) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < n; i++) {
-            if (i > 0) {
-                sb.append(", ");
-            }
-            sb.append("?");
+    private void insertRunLog(
+            Connection conn,
+            String runId,
+            String mode,
+            OffsetDateTime startedAt,
+            OffsetDateTime endedAt,
+            String step,
+            Long elapsedMs,
+            String status,
+            String message
+    ) throws SQLException {
+        String sql = "INSERT INTO run_logs(run_id, mode, started_at, ended_at, step, elapsed_ms, status, message) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, runId);
+            ps.setString(2, mode == null ? "UNKNOWN" : mode);
+            ps.setObject(3, startedAt == null ? OffsetDateTime.now(ZoneOffset.UTC) : startedAt);
+            ps.setObject(4, endedAt);
+            ps.setString(5, step);
+            ps.setObject(6, elapsedMs);
+            ps.setString(7, status);
+            ps.setString(8, message);
+            ps.executeUpdate();
         }
-        return sb.toString();
     }
 }

@@ -324,6 +324,10 @@ public final class Config {
 
         defaults.put("outputs.dir", "outputs");
         defaults.put("db.path", "outputs/stockbot.db");
+        defaults.put("db.url", "jdbc:postgresql://localhost:5432/stockbot");
+        defaults.put("db.user", "stockbot");
+        defaults.put("db.pass", "stockbot");
+        defaults.put("db.schema", "stockbot");
         defaults.put("db.sql_log.enabled", "true");
         defaults.put("report.dir", "outputs/reports");
         defaults.put("report.mode.intraday.hideEntry", "true");
@@ -446,19 +450,27 @@ public final class Config {
 
         defaults.put("watchlist.news.lang", "ja");
         defaults.put("watchlist.news.region", "JP");
-        defaults.put("watchlist.news.max_items", "12");
-        defaults.put("watchlist.news.sources", "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews");
-        defaults.put("watchlist.news.query_variants", "4");
+        defaults.put("watchlist.news.max_items", "20");
+        defaults.put("watchlist.news.sources", "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews,investing,ft,guardian,seekingalpha");
+        defaults.put("watchlist.news.query_variants", "10");
+        defaults.put("watchlist.news.query_topics", "株価,決算,業績,見通し,受注,設備投資,提携,規制,為替,金利,guidance,earnings,outlook,supply chain");
+        defaults.put("watchlist.news.digest_items", "8");
         defaults.put("watchlist.non_jp_handling", "PROCESS_SEPARATELY");
         defaults.put("watchlist.default_market_for_alpha", "US");
         defaults.put("watchlist.ai.base_url", "http://127.0.0.1:11434");
         defaults.put("watchlist.ai.model", "llama3.1:latest");
         defaults.put("watchlist.ai.timeout_sec", "180");
-        defaults.put("watchlist.ai.max_tokens", "80");
-        defaults.put("watchlist.ai.max_chars", "900");
+        defaults.put("watchlist.ai.max_tokens", "220");
+        defaults.put("watchlist.ai.max_chars", "1800");
         defaults.put("watchlist.ai.score_threshold", "-2.0");
         defaults.put("watchlist.ai.news_min", "8");
         defaults.put("watchlist.ai.drop_pct_threshold", "-2.0");
+        defaults.put("vector.memory.enabled", "true");
+        defaults.put("vector.memory.news.max_items", "3");
+        defaults.put("vector.memory.news.top_k", "8");
+        defaults.put("vector.memory.news.max_cases", "5");
+        defaults.put("vector.memory.signal.top_k", "6");
+        defaults.put("vector.memory.signal.max_cases", "5");
 
         defaults.put("polymarket.enabled", "true");
         defaults.put("polymarket.gamma_base_url", "https://gamma-api.polymarket.com");

@@ -47,8 +47,10 @@ import com.stockbot.jp.strategy.ReasonJsonBuilder;
 import com.stockbot.jp.strategy.RiskFilter;
 import com.stockbot.jp.strategy.ScoringEngine;
 import com.stockbot.jp.universe.JpxUniverseUpdater;
+import com.stockbot.jp.vector.EventMemoryService;
 import com.stockbot.jp.watch.TickerResolver;
 import com.stockbot.jp.watch.TickerSpec;
+import com.stockbot.utils.TextFormatter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -66,6 +68,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -79,11 +82,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/**
- * 模块说明：DailyRunner（class）。
- * 主要职责：承载 runner 模块 的关键逻辑，对外提供可复用的调用入口。
- * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
- */
 public final class DailyRunner {
     public static final String RUN_MODE_DAILY = "DAILY";
     public static final String RUN_MODE_MARKET_SCAN = "DAILY_MARKET_SCAN";
@@ -155,7 +153,13 @@ public final class DailyRunner {
             "polymarket.impact.mode",
             "watchlist.path",
             "watchlist.non_jp_handling",
-            "watchlist.default_market_for_alpha"
+            "watchlist.default_market_for_alpha",
+            "vector.memory.enabled",
+            "vector.memory.news.max_items",
+            "vector.memory.news.top_k",
+            "vector.memory.news.max_cases",
+            "vector.memory.signal.top_k",
+            "vector.memory.signal.max_cases"
     );
 
     private enum NonJpHandling {
@@ -184,24 +188,32 @@ public final class DailyRunner {
     private final GatePolicy gatePolicy;
     private final OllamaClient ollamaClient;
     private final PolymarketService polymarketService;
+    private final EventMemoryService eventMemoryService;
     private final TickerResolver tickerResolver;
     private final NonJpHandling nonJpHandling;
     private final int watchlistMaxAiChars;
     private final int maxBars;
     private static final DateTimeFormatter NEWS_TS_FMT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
 
-/**
- * 方法说明：DailyRunner，负责初始化对象并装配依赖参数。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    public DailyRunner(
+public DailyRunner(
             Config config,
             UniverseDao universeDao,
             MetadataDao metadataDao,
             BarDailyDao barDailyDao,
             RunDao runDao,
             ScanResultDao scanResultDao
+    ) {
+        this(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, null);
+    }
+
+public DailyRunner(
+            Config config,
+            UniverseDao universeDao,
+            MetadataDao metadataDao,
+            BarDailyDao barDailyDao,
+            RunDao runDao,
+            ScanResultDao scanResultDao,
+            EventMemoryService eventMemoryService
     ) {
         this.config = config;
         this.universeDao = universeDao;
@@ -223,7 +235,7 @@ public final class DailyRunner {
         int newsMaxItems = Math.max(1, config.getInt("watchlist.news.max_items", 12));
         String newsSources = config.getString(
                 "watchlist.news.sources",
-                "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews"
+                "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews,investing,ft,guardian,seekingalpha"
         );
         int queryVariants = Math.max(1, config.getInt("watchlist.news.query_variants", 4));
         this.newsService = new NewsService(legacyHttp, newsLang, newsRegion, newsMaxItems, newsSources, queryVariants);
@@ -246,36 +258,22 @@ public final class DailyRunner {
                 Math.max(0, config.getInt("watchlist.ai.max_tokens", 80))
         );
         this.polymarketService = new PolymarketService(config, legacyHttp, ollamaClient);
+        this.eventMemoryService = eventMemoryService;
         this.tickerResolver = new TickerResolver(config.getString("watchlist.default_market_for_alpha", "US"));
         this.nonJpHandling = parseNonJpHandling(config.getString("watchlist.non_jp_handling", "PROCESS_SEPARATELY"));
         this.watchlistMaxAiChars = Math.max(120, config.getInt("watchlist.ai.max_chars", 900));
         this.maxBars = Math.max(60, config.getInt("yahoo.max_bars_per_ticker", 420));
     }
 
-/**
- * 方法说明：run，负责执行核心流程并返回执行结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    public DailyRunOutcome run(boolean forceUniverseUpdate, Integer topNOverride) throws Exception {
+public DailyRunOutcome run(boolean forceUniverseUpdate, Integer topNOverride) throws Exception {
         return run(forceUniverseUpdate, topNOverride, false, List.of());
     }
 
-/**
- * 方法说明：run，负责执行核心流程并返回执行结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    public DailyRunOutcome run(boolean forceUniverseUpdate, Integer topNOverride, boolean resetBatchCheckpoint) throws Exception {
+public DailyRunOutcome run(boolean forceUniverseUpdate, Integer topNOverride, boolean resetBatchCheckpoint) throws Exception {
         return run(forceUniverseUpdate, topNOverride, resetBatchCheckpoint, List.of());
     }
 
-/**
- * 方法说明：run，负责执行核心流程并返回执行结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    public DailyRunOutcome run(
+public DailyRunOutcome run(
             boolean forceUniverseUpdate,
             Integer topNOverride,
             boolean resetBatchCheckpoint,
@@ -403,12 +401,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：runMarketScanOnly，负责执行核心流程并返回执行结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    public DailyRunOutcome runMarketScanOnly(
+public DailyRunOutcome runMarketScanOnly(
             boolean forceUniverseUpdate,
             Integer topNOverride,
             boolean resetBatchCheckpoint
@@ -463,12 +456,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：runWatchlistReportFromLatestMarket，负责执行核心流程并返回执行结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist) throws Exception {
+public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist) throws Exception {
         Instant startedAt = Instant.now();
         long runId = runDao.startRun(RUN_MODE_DAILY_REPORT, "watchlist report merged with latest market scan");
         Diagnostics diagnostics = new Diagnostics(runId, RUN_MODE_DAILY_REPORT);
@@ -610,12 +598,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：executeMarketScan，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private MarketScanSnapshot executeMarketScan(
+private MarketScanSnapshot executeMarketScan(
             long runId,
             boolean forceUniverseUpdate,
             Integer topNOverride,
@@ -699,12 +682,7 @@ public final class DailyRunner {
         );
     }
 
-/**
- * 方法说明：analyzeWatchlist，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<UniverseRecord> universe) {
+private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<UniverseRecord> universe) {
         List<String> watchItems = sanitizeWatchlist(watchlist);
         if (watchItems.isEmpty()) {
             return List.of();
@@ -770,6 +748,16 @@ public final class DailyRunner {
                 String companyLocal = resolveCompanyLocalName(record, yahooTicker);
                 String displayName = buildDisplayName(companyLocal, record.code, industryZh, industryEn);
                 String technicalStatus = toWatchStatus(technical, minScore);
+                EventMemoryService.MemoryInsights memoryInsights = collectMemoryInsights(
+                        watchItem,
+                        record,
+                        industryZh,
+                        industryEn,
+                        legacy.context.news,
+                        technicalStatus,
+                        legacy.context.risk,
+                        technical == null || technical.candidate == null ? "" : technical.candidate.reasonsJson
+                );
                 String technicalReasonsJson = enrichWatchReasonJson(
                         technical.candidate.reasonsJson,
                         technical,
@@ -779,7 +767,8 @@ public final class DailyRunner {
                         tickerSpec,
                         record,
                         yahooTicker,
-                        priceTrace
+                        priceTrace,
+                        memoryInsights
                 );
                 String watchDiagnosticsJson = buildWatchDiagnosticsJson(
                         watchItem,
@@ -821,7 +810,10 @@ public final class DailyRunner {
                         legacy.context.news.size(),
                         newsService.sourceLabel(),
                         trimChars(safeText(legacy.context.aiSummary), watchlistMaxAiChars),
-                        buildNewsDigestLines(legacy.context.news),
+                        mergeDigestLines(
+                                buildNewsDigestLines(legacy.context.news),
+                                memoryInsights == null ? List.of() : memoryInsights.toDigestLines()
+                        ),
                         technical.candidate.score,
                         technicalStatus,
                         technicalReasonsJson,
@@ -874,12 +866,7 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：toWatchStatus，负责转换数据结构用于后续处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String toWatchStatus(WatchlistScanResult result, double minScore) {
+private String toWatchStatus(WatchlistScanResult result, double minScore) {
         if (!result.error.isEmpty()) {
             return "ERROR";
         }
@@ -895,12 +882,7 @@ public final class DailyRunner {
         return "CANDIDATE";
     }
 
-/**
- * 方法说明：buildSkippedWatchRow，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private WatchlistAnalysis buildSkippedWatchRow(
+private WatchlistAnalysis buildSkippedWatchRow(
             String watchItem,
             TickerSpec tickerSpec,
             String category,
@@ -1012,12 +994,7 @@ public final class DailyRunner {
         );
     }
 
-/**
- * 方法说明：resolveJpWatchRecord，负责解析规则并确定最终结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private UniverseRecord resolveJpWatchRecord(
+private UniverseRecord resolveJpWatchRecord(
             TickerSpec tickerSpec,
             Map<String, UniverseRecord> byCode,
             Map<String, UniverseRecord> byTicker
@@ -1049,12 +1026,7 @@ public final class DailyRunner {
         );
     }
 
-/**
- * 方法说明：extractCode，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String extractCode(String watchItem) {
+private String extractCode(String watchItem) {
         if (watchItem == null) {
             return "";
         }
@@ -1073,12 +1045,7 @@ public final class DailyRunner {
         return "";
     }
 
-/**
- * 方法说明：toJpTicker，负责转换数据结构用于后续处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String toJpTicker(String normalizedTicker) {
+private String toJpTicker(String normalizedTicker) {
         String token = normalizedTicker == null ? "" : normalizedTicker.trim();
         if (token.isEmpty()) {
             return "";
@@ -1192,12 +1159,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：fetchWatchPriceTrace，负责拉取外部数据并做基础处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private PriceFetchTrace fetchWatchPriceTrace(String jpTicker, String yahooTicker) {
+private PriceFetchTrace fetchWatchPriceTrace(String jpTicker, String yahooTicker) {
         long started = System.nanoTime();
 
         List<BarDaily> fromYahoo = fetchBarsFromYahoo(jpTicker, yahooTicker);
@@ -1238,12 +1200,7 @@ public final class DailyRunner {
         );
     }
 
-/**
- * 方法说明：logPriceTrace，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void logPriceTrace(String ticker, PriceFetchTrace trace) {
+private void logPriceTrace(String ticker, PriceFetchTrace trace) {
         if (trace == null) {
             System.out.println(String.format(Locale.US,
                     "[PRICE] ticker=%s source=fetch_failed tradeDate= lastClose=NaN bars=0 latency=0ms cache_hit=false",
@@ -1264,12 +1221,7 @@ public final class DailyRunner {
         ));
     }
 
-/**
- * 方法说明：fetchBarsFromYahoo，负责拉取外部数据并做基础处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<BarDaily> fetchBarsFromYahoo(String jpTicker, String yahooTicker) {
+private List<BarDaily> fetchBarsFromYahoo(String jpTicker, String yahooTicker) {
         if (yahooTicker == null || yahooTicker.trim().isEmpty()) {
             return List.of();
         }
@@ -1281,12 +1233,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：failedWatchRecord，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private WatchlistScanResult failedWatchRecord(
+private WatchlistScanResult failedWatchRecord(
             UniverseRecord record,
             String watchItem,
             String error,
@@ -1325,23 +1272,13 @@ public final class DailyRunner {
         return new WatchlistScanResult(candidate, false, false, fetchSuccess, indicatorReady, outcome, error);
     }
 
-/**
- * 方法说明：appendWatchMeta，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String appendWatchMeta(String reasonsJson, String watchItem) {
+private String appendWatchMeta(String reasonsJson, String watchItem) {
         JSONObject root = new JSONObject(reasonsJson == null ? "{}" : reasonsJson);
         root.put("watch_item", watchItem == null ? "" : watchItem);
         return root.toString();
     }
 
-/**
- * 方法说明：enrichWatchReasonJson，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String enrichWatchReasonJson(
+private String enrichWatchReasonJson(
             String rawReasonsJson,
             WatchlistScanResult technical,
             String technicalStatus,
@@ -1350,7 +1287,8 @@ public final class DailyRunner {
             TickerSpec tickerSpec,
             UniverseRecord record,
             String yahooTicker,
-            PriceFetchTrace priceTrace
+            PriceFetchTrace priceTrace,
+            EventMemoryService.MemoryInsights memoryInsights
     ) {
         JSONObject root = safeJsonObject(rawReasonsJson);
         root.put("watch_item", watchItem == null ? "" : watchItem);
@@ -1401,15 +1339,13 @@ public final class DailyRunner {
         root.put("details", detailObj);
         root.put("missing_inputs", missingInputs);
         root.put("fetch_trace", buildFetchTraceObject(tickerSpec, record, yahooTicker, priceTrace));
+        if (memoryInsights != null) {
+            root.put("memory", memoryInsights.toJson());
+        }
         return root.toString();
     }
 
-/**
- * 方法说明：buildWatchDiagnosticsJson，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String buildWatchDiagnosticsJson(
+private String buildWatchDiagnosticsJson(
             String watchItem,
             TickerSpec tickerSpec,
             UniverseRecord record,
@@ -1451,12 +1387,7 @@ public final class DailyRunner {
         return fetch;
     }
 
-/**
- * 方法说明：determineWatchCause，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private CauseCode determineWatchCause(WatchlistScanResult technical, String technicalStatus, double minScore) {
+private CauseCode determineWatchCause(WatchlistScanResult technical, String technicalStatus, double minScore) {
         if (technical == null) {
             return CauseCode.RUNTIME_ERROR;
         }
@@ -1478,12 +1409,7 @@ public final class DailyRunner {
         return CauseCode.NONE;
     }
 
-/**
- * 方法说明：resolveFetcherClass，负责解析规则并确定最终结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String resolveFetcherClass(String dataSource) {
+private String resolveFetcherClass(String dataSource) {
         String src = safeText(dataSource).toLowerCase(Locale.ROOT);
         if ("yahoo".equals(src)) {
             return "com.stockbot.data.MarketDataService#fetchDailyHistoryBars(...)";
@@ -1509,12 +1435,7 @@ public final class DailyRunner {
         return "US_OR_OTHER";
     }
 
-/**
- * 方法说明：safeJsonObject，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private JSONObject safeJsonObject(String raw) {
+private JSONObject safeJsonObject(String raw) {
         if (raw == null || raw.trim().isEmpty()) {
             return new JSONObject();
         }
@@ -1525,12 +1446,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：buildLegacyWatchResult，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private LegacyWatchResult buildLegacyWatchResult(
+private LegacyWatchResult buildLegacyWatchResult(
             UniverseRecord record,
             String watchItem,
             String yahooTicker,
@@ -1563,7 +1479,8 @@ public final class DailyRunner {
             aiTriggered = gatePolicy.shouldRunAi(sc);
             if (aiTriggered) {
                 sc.aiRan = true;
-                sc.aiSummary = ollamaClient.summarize(Prompts.buildPrompt(sc));
+                String rawSummary = ollamaClient.summarize(Prompts.buildPrompt(sc));
+                sc.aiSummary = TextFormatter.cleanForEmail(rawSummary);
             } else {
                 sc.aiRan = false;
                 sc.aiSummary = "";
@@ -1575,12 +1492,7 @@ public final class DailyRunner {
         return new LegacyWatchResult(sc, aiTriggered, error);
     }
 
-/**
- * 方法说明：toBarsFromYahoo，负责转换数据结构用于后续处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<BarDaily> toBarsFromYahoo(String jpTicker, List<MarketDataService.DailyBar> history) {
+private List<BarDaily> toBarsFromYahoo(String jpTicker, List<MarketDataService.DailyBar> history) {
         if (history == null || history.isEmpty()) {
             return List.of();
         }
@@ -1604,12 +1516,7 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：toDailyPrices，负责转换数据结构用于后续处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
+private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
         if (bars == null || bars.isEmpty()) {
             return List.of();
         }
@@ -1625,29 +1532,60 @@ public final class DailyRunner {
     }
 
     private List<String> buildNewsQueries(UniverseRecord record, String watchItem, String yahooTicker) {
-        List<String> queries = new ArrayList<>();
-        if (record.name != null && !record.name.trim().isEmpty()) {
-            queries.add(record.name.trim());
+        LinkedHashSet<String> queries = new LinkedHashSet<>();
+        String recordName = safeText(record == null ? "" : record.name);
+        String recordCode = safeText(record == null ? "" : record.code);
+        String watchToken = safeText(watchItem);
+        String ticker = safeText(yahooTicker);
+
+        if (!recordName.isEmpty()) {
+            queries.add(recordName);
         }
-        if (record.code != null && !record.code.trim().isEmpty()) {
-            queries.add(record.code.trim());
-        }
-        String company = industryService.companyNameOf(yahooTicker);
-        if (company != null && !company.trim().isEmpty()) {
-            queries.add(company.trim());
-        }
-        String industry = industryService.industryOf(yahooTicker);
-        if (industry != null && !industry.trim().isEmpty()) {
-            String prefix = (company == null || company.trim().isEmpty()) ? safeText(record.name) : company.trim();
-            if (prefix.isEmpty()) {
-                prefix = safeText(record.code);
+        if (!recordCode.isEmpty()) {
+            queries.add(recordCode);
+            if (recordCode.matches("\\d{4,6}")) {
+                queries.add(recordCode + ".T");
             }
-            queries.add((prefix + " " + industry).trim());
         }
-        if (watchItem != null && !watchItem.trim().isEmpty()) {
-            queries.add(watchItem.trim());
+        if (!ticker.isEmpty()) {
+            queries.add(ticker);
         }
-        return queries;
+        if (!watchToken.isEmpty()) {
+            queries.add(watchToken);
+        }
+
+        String company = safeText(industryService.companyNameOf(yahooTicker));
+        if (!company.isEmpty()) {
+            queries.add(company);
+        }
+        String industry = safeText(industryService.industryOf(yahooTicker));
+        if (!industry.isEmpty()) {
+            String prefix = company.isEmpty() ? (recordName.isEmpty() ? recordCode : recordName) : company;
+            if (!prefix.isEmpty()) {
+                queries.add((prefix + " " + industry).trim());
+            }
+            queries.add(industry);
+        }
+
+        List<String> topics = parseTopicCsv(config.getString(
+                "watchlist.news.query_topics",
+                "株価,決算,業績,見通し,受注,設備投資,提携,規制,為替,金利,guidance,earnings,outlook,supply chain"
+        ));
+        String anchor = company.isEmpty() ? (recordName.isEmpty() ? watchToken : recordName) : company;
+        if (anchor.isEmpty()) {
+            anchor = ticker.isEmpty() ? recordCode : ticker;
+        }
+        for (String topic : topics) {
+            if (anchor.isEmpty()) {
+                break;
+            }
+            queries.add((anchor + " " + topic).trim());
+            if (!industry.isEmpty()) {
+                queries.add((industry + " " + topic).trim());
+            }
+        }
+
+        return new ArrayList<>(queries);
     }
 
     private String toYahooTicker(TickerSpec tickerSpec, UniverseRecord record) {
@@ -1700,12 +1638,7 @@ public final class DailyRunner {
         return record.ticker == null ? "" : record.ticker;
     }
 
-/**
- * 方法说明：buildDisplayName，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String buildDisplayName(String localName, String code, String industryZh, String industryEn) {
+private String buildDisplayName(String localName, String code, String industryZh, String industryEn) {
         String n = safeText(localName);
         String c = safeText(code);
         String zh = safeText(industryZh);
@@ -1729,24 +1662,14 @@ public final class DailyRunner {
         return String.format(Locale.US, "%s %s (%s)", n, c, industry);
     }
 
-/**
- * 方法说明：computePctChange，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private double computePctChange(Double last, Double prev) {
+private double computePctChange(Double last, Double prev) {
         if (last == null || prev == null || !Double.isFinite(last) || !Double.isFinite(prev) || prev == 0.0) {
             return 0.0;
         }
         return (last - prev) / prev * 100.0;
     }
 
-/**
- * 方法说明：detectPriceSuspects，负责检测条件并输出判断结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private Set<String> detectPriceSuspects(List<WatchlistAnalysis> rows) {
+private Set<String> detectPriceSuspects(List<WatchlistAnalysis> rows) {
         if (rows == null || rows.isEmpty()) {
             return Set.of();
         }
@@ -1793,12 +1716,7 @@ public final class DailyRunner {
         return suspects;
     }
 
-/**
- * 方法说明：copyWatchRowWithSuspect，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private WatchlistAnalysis copyWatchRowWithSuspect(WatchlistAnalysis row, boolean suspect) {
+private WatchlistAnalysis copyWatchRowWithSuspect(WatchlistAnalysis row, boolean suspect) {
         return new WatchlistAnalysis(
                 row.watchItem,
                 row.code,
@@ -1840,12 +1758,7 @@ public final class DailyRunner {
         );
     }
 
-/**
- * 方法说明：trimChars，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String trimChars(String text, int maxChars) {
+private String trimChars(String text, int maxChars) {
         String t = safeText(text);
         if (t.length() <= maxChars) {
             return t;
@@ -1853,12 +1766,7 @@ public final class DailyRunner {
         return t.substring(0, Math.max(0, maxChars - 3)) + "...";
     }
 
-/**
- * 方法说明：joinErrors，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String joinErrors(String a, String b) {
+private String joinErrors(String a, String b) {
         String x = safeText(a);
         String y = safeText(b);
         if (x.isEmpty()) {
@@ -1873,12 +1781,7 @@ public final class DailyRunner {
         return x + " | " + y;
     }
 
-/**
- * 方法说明：loadPreviousCandidateScoreMap，负责加载配置或数据。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private Map<String, Double> loadPreviousCandidateScoreMap(long beforeRunId, int limit) {
+private Map<String, Double> loadPreviousCandidateScoreMap(long beforeRunId, int limit) {
         Map<String, Double> out = new HashMap<>();
         int topK = Math.max(30, limit);
         try {
@@ -1899,12 +1802,7 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：loadScanSummary，负责加载配置或数据。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private ScanSummaryEnvelope loadScanSummary(long runId, ScanStats fallbackStats, RunRow fallbackRun, int fallbackTotal) {
+private ScanSummaryEnvelope loadScanSummary(long runId, ScanStats fallbackStats, RunRow fallbackRun, int fallbackTotal) {
         try {
             ScanResultSummary summary = scanResultDao.summarizeByRun(runId);
             if (summary.total > 0) {
@@ -1950,12 +1848,7 @@ public final class DailyRunner {
         return new ScanSummaryEnvelope(summary, "DERIVED", OWNER_DERIVE_COVERAGE);
     }
 
-/**
- * 方法说明：zeroFailureMap，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private Map<ScanFailureReason, Integer> zeroFailureMap() {
+private Map<ScanFailureReason, Integer> zeroFailureMap() {
         Map<ScanFailureReason, Integer> out = new EnumMap<>(ScanFailureReason.class);
         for (ScanFailureReason reason : ScanFailureReason.values()) {
             out.put(reason, 0);
@@ -1963,12 +1856,7 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：zeroInsufficientMap，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private Map<DataInsufficientReason, Integer> zeroInsufficientMap() {
+private Map<DataInsufficientReason, Integer> zeroInsufficientMap() {
         Map<DataInsufficientReason, Integer> out = new EnumMap<>(DataInsufficientReason.class);
         for (DataInsufficientReason reason : DataInsufficientReason.values()) {
             out.put(reason, 0);
@@ -1976,12 +1864,7 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：deriveCoverageFromRunAndCandidates，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private CoverageDerivation deriveCoverageFromRunAndCandidates(long runId, RunRow fallbackRun, int fallbackTotal) {
+private CoverageDerivation deriveCoverageFromRunAndCandidates(long runId, RunRow fallbackRun, int fallbackTotal) {
         int minHistoryBars = Math.max(120, config.getInt("scan.min_history_bars", 180));
         int candidateLimit = 600;
         List<String> tickers = List.of();
@@ -2023,24 +1906,14 @@ public final class DailyRunner {
         return new CoverageDerivation(total, fetch, indicator);
     }
 
-/**
- * 方法说明：captureConfigSnapshot，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void captureConfigSnapshot(Diagnostics diagnostics) {
+private void captureConfigSnapshot(Diagnostics diagnostics) {
         for (String key : DIAGNOSTIC_CONFIG_KEYS) {
             Config.ResolvedValue resolved = config.resolve(key);
             diagnostics.addConfig(resolved.key, resolved.value, resolved.source);
         }
     }
 
-/**
- * 方法说明：addMarketDataSourceStats，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void addMarketDataSourceStats(Diagnostics diagnostics, long runId, ScanStats fallbackStats) {
+private void addMarketDataSourceStats(Diagnostics diagnostics, long runId, ScanStats fallbackStats) {
         Map<String, Integer> out = new LinkedHashMap<>();
         try {
             out.putAll(scanResultDao.dataSourceCountsByRun(runId));
@@ -2062,12 +1935,7 @@ public final class DailyRunner {
         diagnostics.addDataSourceStat("market_other", out.getOrDefault("other", 0));
     }
 
-/**
- * 方法说明：addWatchlistCoverageDiagnostics，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void addWatchlistCoverageDiagnostics(Diagnostics diagnostics, List<WatchlistAnalysis> watchRows) {
+private void addWatchlistCoverageDiagnostics(Diagnostics diagnostics, List<WatchlistAnalysis> watchRows) {
         int total = 0;
         int fetch = 0;
         int indicator = 0;
@@ -2109,12 +1977,7 @@ public final class DailyRunner {
         );
     }
 
-/**
- * 方法说明：addMarketCoverageDiagnostics，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void addMarketCoverageDiagnostics(
+private void addMarketCoverageDiagnostics(
             Diagnostics diagnostics,
             ScanResultSummary summary,
             int fallbackDenominator,
@@ -2164,12 +2027,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：collectPolymarketSignals，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private PolymarketResult collectPolymarketSignals(List<WatchlistAnalysis> watchRows, Diagnostics diagnostics) {
+private PolymarketResult collectPolymarketSignals(List<WatchlistAnalysis> watchRows, Diagnostics diagnostics) {
         Throwable runtimeError = null;
         PolymarketSignalReport report;
         try {
@@ -2190,15 +2048,59 @@ public final class DailyRunner {
         return new PolymarketResult(report, resolution);
     }
 
-/**
- * 方法说明：buildNewsDigestLines，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
+private EventMemoryService.MemoryInsights collectMemoryInsights(
+            String watchItem,
+            UniverseRecord record,
+            String industryZh,
+            String industryEn,
+            List<NewsItem> news,
+            String technicalStatus,
+            String risk,
+            String technicalReasonsJson
+    ) {
+        if (!config.getBoolean("vector.memory.enabled", true) || eventMemoryService == null) {
+            return EventMemoryService.MemoryInsights.empty();
+        }
+        try {
+            return eventMemoryService.buildInsights(
+                    watchItem,
+                    record == null ? "" : record.ticker,
+                    industryZh,
+                    industryEn,
+                    news,
+                    technicalStatus,
+                    risk,
+                    technicalReasonsJson,
+                    Instant.now()
+            );
+        } catch (Exception e) {
+            System.err.println("WARN: vector memory build failed ticker="
+                    + safeText(record == null ? "" : record.ticker) + ", err=" + e.getMessage());
+            return EventMemoryService.MemoryInsights.empty();
+        }
+    }
+
+    private List<String> mergeDigestLines(List<String> baseLines, List<String> extraLines) {
+        List<String> out = new ArrayList<>();
+        if (baseLines != null && !baseLines.isEmpty()) {
+            out.addAll(baseLines);
+        }
+        if (extraLines != null && !extraLines.isEmpty()) {
+            for (String line : extraLines) {
+                String text = safeText(line);
+                if (!text.isEmpty()) {
+                    out.add(text);
+                }
+            }
+        }
+        return out;
+    }
+
     private List<String> buildNewsDigestLines(List<NewsItem> news) {
         if (news == null || news.isEmpty()) {
             return List.of();
         }
+        int maxDigestItems = Math.max(3, config.getInt("watchlist.news.digest_items", 8));
         List<String> lines = new ArrayList<>();
         for (NewsItem item : news) {
             if (item == null) {
@@ -2211,7 +2113,7 @@ public final class DailyRunner {
             String source = safeText(item.source);
             String ts = item.publishedAt == null ? "" : NEWS_TS_FMT.format(item.publishedAt);
             StringBuilder line = new StringBuilder();
-            line.append(trimChars(title, 70));
+            line.append(TextFormatter.cleanForEmail(title).replace("\r", " ").replace("\n", " ").trim());
             if (!source.isEmpty()) {
                 line.append(" | ").append(source);
             }
@@ -2219,50 +2121,46 @@ public final class DailyRunner {
                 line.append(" | ").append(ts);
             }
             lines.add(line.toString());
-            if (lines.size() >= 3) {
+            if (lines.size() >= maxDigestItems) {
                 break;
             }
         }
         return lines;
     }
 
-/**
- * 方法说明：safeText，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String safeText(String value) {
+    private List<String> parseTopicCsv(String csv) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (csv != null) {
+            for (String raw : csv.split(",")) {
+                String token = safeText(raw);
+                if (!token.isEmpty()) {
+                    out.add(token);
+                }
+                if (out.size() >= 12) {
+                    break;
+                }
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+private String safeText(String value) {
         return value == null ? "" : value.trim();
     }
 
-/**
- * 方法说明：blankTo，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String blankTo(String value, String fallback) {
+private String blankTo(String value, String fallback) {
         String t = safeText(value);
         return t.isEmpty() ? fallback : t;
     }
 
-/**
- * 方法说明：safeDouble，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private double safeDouble(Double value) {
+private double safeDouble(Double value) {
         if (value == null || !Double.isFinite(value)) {
             return 0.0;
         }
         return value;
     }
 
-/**
- * 方法说明：sanitizeWatchlist，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<String> sanitizeWatchlist(List<String> watchlist) {
+private List<String> sanitizeWatchlist(List<String> watchlist) {
         List<String> out = new ArrayList<>();
         if (watchlist == null) {
             return out;
@@ -2280,12 +2178,7 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：parseNonJpHandling，负责解析输入内容并转换结构。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private NonJpHandling parseNonJpHandling(String raw) {
+private NonJpHandling parseNonJpHandling(String raw) {
         String value = raw == null ? "" : raw.trim().toUpperCase(Locale.ROOT);
         if ("PROCESS_SEPARATELY".equals(value)) {
             return NonJpHandling.PROCESS_SEPARATELY;
@@ -2293,12 +2186,7 @@ public final class DailyRunner {
         return NonJpHandling.SKIP_WITH_REASON;
     }
 
-/**
- * 方法说明：scanUniverse，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private ScanStats scanUniverse(
+private ScanStats scanUniverse(
             long runId,
             List<UniverseRecord> universe,
             int topN,
@@ -2388,12 +2276,7 @@ public final class DailyRunner {
         return stats;
     }
 
-/**
- * 方法说明：shouldLogProgress，负责判断条件是否满足。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private boolean shouldLogProgress(int completed, int total, int logEvery) {
+private boolean shouldLogProgress(int completed, int total, int logEvery) {
         if (completed >= total) {
             return true;
         }
@@ -2403,12 +2286,7 @@ public final class DailyRunner {
         return completed % logEvery == 0;
     }
 
-/**
- * 方法说明：logScanProgress，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void logScanProgress(
+private void logScanProgress(
             int segmentNo,
             int segmentCount,
             String segmentLabel,
@@ -2467,12 +2345,7 @@ public final class DailyRunner {
         ));
     }
 
-/**
- * 方法说明：formatSeconds，负责格式化数据用于展示或传输。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String formatSeconds(long seconds) {
+private String formatSeconds(long seconds) {
         long sec = Math.max(0L, seconds);
         long h = sec / 3600;
         long m = (sec % 3600) / 60;
@@ -2480,42 +2353,22 @@ public final class DailyRunner {
         return String.format(Locale.US, "%02d:%02d:%02d", h, m, s);
     }
 
-/**
- * 方法说明：avgMillis，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private double avgMillis(long nanos, int count) {
+private double avgMillis(long nanos, int count) {
         if (count <= 0) {
             return 0.0;
         }
         return nanos / 1_000_000.0 / count;
     }
 
-/**
- * 方法说明：seconds，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private double seconds(long nanos) {
+private double seconds(long nanos) {
         return nanos / 1_000_000_000.0;
     }
 
-/**
- * 方法说明：nanosToMillis，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private long nanosToMillis(long nanos) {
+private long nanosToMillis(long nanos) {
         return Math.max(0L, Math.round(nanos / 1_000_000.0));
     }
 
-/**
- * 方法说明：normalizeRequestFailureCategory，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String normalizeRequestFailureCategory(String category, String errorMessage) {
+private String normalizeRequestFailureCategory(String category, String errorMessage) {
         String raw = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
         String msg = errorMessage == null ? "" : errorMessage.trim().toLowerCase(Locale.ROOT);
 
@@ -2543,12 +2396,7 @@ public final class DailyRunner {
         return raw.isEmpty() ? "other" : raw;
     }
 
-/**
- * 方法说明：requestFailureReason，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private ScanFailureReason requestFailureReason(String category) {
+private ScanFailureReason requestFailureReason(String category) {
         String c = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
         if ("timeout".equals(c)) {
             return ScanFailureReason.TIMEOUT;
@@ -2568,12 +2416,7 @@ public final class DailyRunner {
         return ScanFailureReason.OTHER;
     }
 
-/**
- * 方法说明：scanTicker，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private TickerScanResult scanTicker(UniverseRecord universe) {
+private TickerScanResult scanTicker(UniverseRecord universe) {
         long started = System.nanoTime();
         try {
             int minHistoryBars = Math.max(120, config.getInt("scan.min_history_bars", 180));
@@ -2697,12 +2540,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：evaluateBars，负责评估条件并输出判定结论。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private TickerScanResult evaluateBars(
+private TickerScanResult evaluateBars(
             UniverseRecord universe,
             List<BarDaily> bars,
             long downloadNanos,
@@ -2953,12 +2791,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：lastTradeDateOf，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private LocalDate lastTradeDateOf(List<BarDaily> bars) {
+private LocalDate lastTradeDateOf(List<BarDaily> bars) {
         if (bars == null || bars.isEmpty()) {
             return null;
         }
@@ -2971,12 +2804,7 @@ public final class DailyRunner {
         return null;
     }
 
-/**
- * 方法说明：lastCloseOf，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private double lastCloseOf(List<BarDaily> bars) {
+private double lastCloseOf(List<BarDaily> bars) {
         if (bars == null || bars.isEmpty()) {
             return Double.NaN;
         }
@@ -2989,12 +2817,7 @@ public final class DailyRunner {
         return Double.NaN;
     }
 
-/**
- * 方法说明：isBarsFreshEnough，负责判断条件是否满足。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private boolean isBarsFreshEnough(List<BarDaily> bars, int freshDays) {
+private boolean isBarsFreshEnough(List<BarDaily> bars, int freshDays) {
         if (bars == null || bars.isEmpty()) {
             return false;
         }
@@ -3015,12 +2838,7 @@ public final class DailyRunner {
         return ageDays <= effectiveFreshDays;
     }
 
-/**
- * 方法说明：isCacheFreshEnough，负责判断条件是否满足。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private boolean isCacheFreshEnough(List<BarDaily> bars, int minHistoryBars, int freshDays) {
+private boolean isCacheFreshEnough(List<BarDaily> bars, int minHistoryBars, int freshDays) {
         if (bars == null || bars.size() < minHistoryBars) {
             return false;
         }
@@ -3044,12 +2862,7 @@ public final class DailyRunner {
         return false;
     }
 
-/**
- * 方法说明：isTradableAndLiquid，负责判断条件是否满足。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private boolean isTradableAndLiquid(List<BarDaily> bars) {
+private boolean isTradableAndLiquid(List<BarDaily> bars) {
         if (bars == null || bars.isEmpty()) {
             return false;
         }
@@ -3110,12 +2923,7 @@ public final class DailyRunner {
         return flatDays <= maxFlatDays;
     }
 
-/**
- * 方法说明：loadCachedBars，负责加载配置或数据。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<BarDaily> loadCachedBars(String ticker) {
+private List<BarDaily> loadCachedBars(String ticker) {
         try {
             return barDailyDao.loadRecentBars(ticker, maxBars);
         } catch (SQLException ignored) {
@@ -3123,12 +2931,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：safeFinishFailed，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void safeFinishFailed(long runId, Exception e) {
+private void safeFinishFailed(long runId, Exception e) {
         try {
             String message = e.getClass().getSimpleName() + ": " + e.getMessage();
             runDao.finishRun(runId, "FAILED", 0, 0, 0, 0, null, message);
@@ -3137,12 +2940,7 @@ public final class DailyRunner {
         }
     }
 
-/**
- * 方法说明：prepareBatchPlan，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private BatchPlan prepareBatchPlan(List<UniverseRecord> universe, int topN, boolean resetBatchCheckpoint) throws SQLException {
+private BatchPlan prepareBatchPlan(List<UniverseRecord> universe, int topN, boolean resetBatchCheckpoint) throws SQLException {
         boolean batchEnabled = config.getBoolean("scan.batch.enabled", true);
         boolean segmentByMarket = config.getBoolean("scan.batch.segment_by_market", true);
         boolean resumeEnabled = batchEnabled && config.getBoolean("scan.batch.resume_enabled", true);
@@ -3169,12 +2967,7 @@ public final class DailyRunner {
         return new BatchPlan(segments, resumeEnabled, checkpointKey, signature, topN);
     }
 
-/**
- * 方法说明：loadBatchState，负责加载配置或数据。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private BatchState loadBatchState(BatchPlan plan, int topN) throws Exception {
+private BatchState loadBatchState(BatchPlan plan, int topN) throws Exception {
         BatchState fresh = new BatchState(new ScanStats(topN), 0);
         if (!plan.resumeEnabled) {
             return fresh;
@@ -3218,12 +3011,7 @@ public final class DailyRunner {
         return new BatchState(ScanStats.fromCheckpoint(checkpoint, topN), next);
     }
 
-/**
- * 方法说明：saveCheckpoint，负责保存数据到目标存储。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void saveCheckpoint(BatchPlan plan, BatchState state, int topN) throws SQLException {
+private void saveCheckpoint(BatchPlan plan, BatchState state, int topN) throws SQLException {
         if (!plan.resumeEnabled) {
             return;
         }
@@ -3231,24 +3019,14 @@ public final class DailyRunner {
         metadataDao.put(plan.checkpointKey, checkpoint.toJson().toString());
     }
 
-/**
- * 方法说明：clearCheckpoint，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void clearCheckpoint(BatchPlan plan) throws SQLException {
+private void clearCheckpoint(BatchPlan plan) throws SQLException {
         if (!plan.resumeEnabled) {
             return;
         }
         metadataDao.delete(plan.checkpointKey);
     }
 
-/**
- * 方法说明：segmentByMarket，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<MarketSegment> segmentByMarket(List<UniverseRecord> universe, int marketChunkSize) {
+private List<MarketSegment> segmentByMarket(List<UniverseRecord> universe, int marketChunkSize) {
         Map<String, List<UniverseRecord>> grouped = new LinkedHashMap<>();
         for (UniverseRecord record : universe) {
             String market = normalizeMarket(record.market);
@@ -3273,12 +3051,7 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：segmentByFixedChunk，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private List<MarketSegment> segmentByFixedChunk(List<UniverseRecord> universe, int chunkSize) {
+private List<MarketSegment> segmentByFixedChunk(List<UniverseRecord> universe, int chunkSize) {
         List<MarketSegment> out = new ArrayList<>();
         for (int i = 0; i < universe.size(); i += chunkSize) {
             int to = Math.min(universe.size(), i + chunkSize);
@@ -3288,24 +3061,14 @@ public final class DailyRunner {
         return out;
     }
 
-/**
- * 方法说明：normalizeMarket，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String normalizeMarket(String market) {
+private String normalizeMarket(String market) {
         if (market == null || market.trim().isEmpty()) {
             return "UNKNOWN";
         }
         return market.trim();
     }
 
-/**
- * 方法说明：universeSignature，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private String universeSignature(List<UniverseRecord> universe) {
+private String universeSignature(List<UniverseRecord> universe) {
         long hash = 1125899906842597L;
         for (UniverseRecord record : universe) {
             hash = 31L * hash + record.ticker.hashCode();
@@ -3392,12 +3155,7 @@ public final class DailyRunner {
             this.universe = universe;
         }
 
-/**
- * 方法说明：call，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-        @Override
+@Override
         public TickerScanResult call() {
             return scanTicker(universe);
         }
@@ -3628,12 +3386,7 @@ public final class DailyRunner {
             return copy;
         }
 
-/**
- * 方法说明：addTopCandidate，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-        private void addTopCandidate(ScoredCandidate candidate) {
+private void addTopCandidate(ScoredCandidate candidate) {
             topCandidates.add(candidate);
             topCandidates.sort(Comparator.comparingDouble((ScoredCandidate c) -> c.score).reversed());
             if (topCandidates.size() > topN) {
@@ -3717,12 +3470,7 @@ public final class DailyRunner {
             return insufficientCounts.getOrDefault(reason, 0);
         }
 
-/**
- * 方法说明：requestReason，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-        private ScanFailureReason requestReason(String category) {
+private ScanFailureReason requestReason(String category) {
             String c = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
             if ("timeout".equals(c)) {
                 return ScanFailureReason.TIMEOUT;

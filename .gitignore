@@ -5,6 +5,7 @@ build/
 dist/
 release/
 outputs/
+.pgdata/
 dependency-reduced-pom.xml
 *.class
 *.jar
@@ -44,6 +45,7 @@ $RECYCLE.BIN/
 *.secret
 config.local.properties
 watchlist.local.txt
+watchlist_smoke.txt
 
 # ===== Caches and temp files =====
 .cache/

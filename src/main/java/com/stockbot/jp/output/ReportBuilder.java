@@ -20,6 +20,7 @@ import com.stockbot.jp.polymarket.PolymarketWatchImpact;
 import com.stockbot.jp.strategy.CandidateFilter;
 import com.stockbot.jp.strategy.RiskFilter;
 import com.stockbot.jp.strategy.ScoringEngine;
+import com.stockbot.utils.TextFormatter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -501,11 +502,22 @@ public final class ReportBuilder {
  */
     private void appendWatchAiSummary(StringBuilder sb, List<WatchlistAnalysis> watchRows) {
         if (watchRows.isEmpty()) return;
-        sb.append("<div class='card'><h3 style='margin-top:0;'>AI 新闻摘要（最多3行）</h3>");
+        sb.append("<div class='card'><h3 style='margin-top:0;'>AI 新闻摘要（纯文本）</h3>");
         for (WatchlistAnalysis row : watchRows) {
             sb.append("<div style='margin-bottom:8px;'><b>").append(escape(watchName(row))).append("</b>");
             for (String line : aiSummaryLines(row)) {
                 sb.append("<div class='small'>").append(escape(line)).append("</div>");
+            }
+            if (row.newsDigests != null && !row.newsDigests.isEmpty()) {
+                sb.append("<details><summary class='small'>相关新闻</summary>");
+                for (String digest : row.newsDigests) {
+                    String line = sanitizeInlineText(digest);
+                    if (line.isEmpty()) {
+                        continue;
+                    }
+                    sb.append("<div class='small'>- ").append(escape(line)).append("</div>");
+                }
+                sb.append("</details>");
             }
             sb.append("</div>");
         }
@@ -857,6 +869,8 @@ public final class ReportBuilder {
             item.put("cause_code", displayReason.causeCode);
             item.put("owner", displayReason.owner);
             item.put("details", details);
+            JSONObject memory = reasonRoot.optJSONObject("memory");
+            item.put("memory", memory == null ? new JSONObject() : memory);
             item.put("display_category", displayReason.category);
             item.put("user_message", displayReason.userMessage);
 
@@ -1328,24 +1342,51 @@ public final class ReportBuilder {
  */
     private List<String> aiSummaryLines(WatchlistAnalysis row) {
         List<String> out = new ArrayList<>();
-        String summary = blankTo(row.aiSummary, "").replace("\r", " ").replace("\n", " ").trim();
+        String summary = normalizeAiSummaryText(row.aiSummary);
         if (summary.isEmpty()) {
-            out.add("1) 今日关键事件：无重大");
-            out.add("2) 利好：无重大；利空：无重大");
-            out.add("3) 关注点：无重大");
+            out.add("1) 今日关键事件：暂无数据");
+            out.add("2) 利好/利空：暂无数据/暂无数据");
+            out.add("3) 关注点：暂无数据");
             return out;
         }
-        out.add("1) 今日关键事件：" + trimText(summary, 100));
-        out.add("2) 利好：无重大；利空：无重大");
-        out.add("3) 关注点：" + trimText(summary, 80));
+        List<String> lines = toReadableLines(summary);
+        if (lines.isEmpty()) {
+            out.add(summary);
+            return out;
+        }
+        out.addAll(lines);
         return out;
     }
 
-/**
- * 方法说明：actionAdvice，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
+    private String normalizeAiSummaryText(String raw) {
+        String text = TextFormatter.cleanForEmail(blankTo(raw, ""));
+        text = text
+                .replaceAll("\\[(.+?)]\\((https?://[^)]+)\\)", "$1")
+                .replaceAll("(?m)^\\s{0,3}[-*+•]+\\s+", "")
+                .replaceAll("`+", "")
+                .replaceAll("\\\\n", "\n")
+                .trim();
+        return text;
+    }
+
+    private String sanitizeInlineText(String raw) {
+        String text = normalizeAiSummaryText(raw);
+        return text.replace("\r", " ").replace("\n", " ").trim();
+    }
+
+    private List<String> toReadableLines(String text) {
+        List<String> out = new ArrayList<>();
+        String normalized = blankTo(text, "").replace("\r\n", "\n").replace("\r", "\n");
+        for (String part : normalized.split("\n")) {
+            String line = part == null ? "" : part.trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            out.add(line);
+        }
+        return out;
+    }
+
     private ActionAdvice actionAdvice(double fetchCoveragePct, double indicatorCoveragePct, int candidateCount, List<CandidateCard> cards) {
         double fetchLowPct = config.getDouble("report.advice.fetch_low_pct", 50.0);
         double indicatorLowPct = config.getDouble("report.advice.indicator_low_pct", 50.0);

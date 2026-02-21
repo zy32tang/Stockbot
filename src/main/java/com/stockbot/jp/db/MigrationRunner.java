@@ -1,212 +1,178 @@
 package com.stockbot.jp.db;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.HashSet;
-import java.util.Locale;
-import java.util.Set;
 
 /**
- * 模块说明：MigrationRunner（class）。
- * 主要职责：承载 db 模块 的关键逻辑，对外提供可复用的调用入口。
- * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ * Idempotent PostgreSQL schema migration runner.
  */
 public final class MigrationRunner {
 
-/**
- * 方法说明：run，负责执行核心流程并返回执行结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public void run(Database database) throws SQLException {
         try (Connection conn = database.connect(); Statement st = conn.createStatement()) {
-            st.executeUpdate("CREATE TABLE IF NOT EXISTS metadata (" +
-                    "meta_key TEXT PRIMARY KEY," +
-                    "meta_value TEXT NOT NULL," +
-                    "updated_at TEXT NOT NULL" +
+            st.execute("CREATE EXTENSION IF NOT EXISTS vector");
+            st.execute("CREATE SCHEMA IF NOT EXISTS stockbot");
+            st.execute("SET search_path TO stockbot, public");
+
+            st.execute("CREATE TABLE IF NOT EXISTS watchlist (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "ticker TEXT NOT NULL UNIQUE," +
+                    "name TEXT NULL," +
+                    "market TEXT NULL," +
+                    "updated_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
                     ")");
 
-            st.executeUpdate("CREATE TABLE IF NOT EXISTS universe (" +
+            st.execute("CREATE TABLE IF NOT EXISTS price_daily (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "ticker TEXT NOT NULL," +
+                    "trade_date DATE NOT NULL," +
+                    "open NUMERIC," +
+                    "high NUMERIC," +
+                    "low NUMERIC," +
+                    "close NUMERIC," +
+                    "volume NUMERIC," +
+                    "source TEXT NULL," +
+                    "created_at TIMESTAMPTZ NOT NULL DEFAULT now()," +
+                    "UNIQUE (ticker, trade_date)" +
+                    ")");
+
+            st.execute("CREATE TABLE IF NOT EXISTS indicators_daily (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "ticker TEXT NOT NULL," +
+                    "trade_date DATE NOT NULL," +
+                    "rsi14 NUMERIC NULL," +
+                    "macd NUMERIC NULL," +
+                    "macd_signal NUMERIC NULL," +
+                    "sma20 NUMERIC NULL," +
+                    "sma50 NUMERIC NULL," +
+                    "atr14 NUMERIC NULL," +
+                    "created_at TIMESTAMPTZ NOT NULL DEFAULT now()," +
+                    "UNIQUE (ticker, trade_date)" +
+                    ")");
+
+            st.execute("CREATE TABLE IF NOT EXISTS signals (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "run_id TEXT NOT NULL," +
+                    "ticker TEXT NOT NULL," +
+                    "as_of TIMESTAMPTZ NOT NULL," +
+                    "score NUMERIC NULL," +
+                    "risk_level TEXT NULL," +
+                    "signal_state TEXT NULL," +
+                    "position_pct NUMERIC NULL," +
+                    "reason TEXT NULL," +
+                    "created_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
+                    ")");
+
+            st.execute("CREATE TABLE IF NOT EXISTS run_logs (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "run_id TEXT NOT NULL," +
+                    "mode TEXT NOT NULL," +
+                    "started_at TIMESTAMPTZ NOT NULL," +
+                    "ended_at TIMESTAMPTZ NULL," +
+                    "step TEXT NULL," +
+                    "elapsed_ms BIGINT NULL," +
+                    "status TEXT NULL," +
+                    "message TEXT NULL" +
+                    ")");
+
+            st.execute("CREATE TABLE IF NOT EXISTS docs (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "doc_type TEXT NOT NULL," +
+                    "ticker TEXT NULL," +
+                    "title TEXT NULL," +
+                    "content TEXT NOT NULL," +
+                    "lang TEXT NULL," +
+                    "source TEXT NULL," +
+                    "published_at TIMESTAMPTZ NULL," +
+                    "content_hash TEXT NOT NULL UNIQUE," +
+                    "embedding VECTOR(1536) NULL," +
+                    "created_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
+                    ")");
+
+            st.execute("CREATE TABLE IF NOT EXISTS metadata (" +
+                    "meta_key TEXT PRIMARY KEY," +
+                    "meta_value TEXT NOT NULL," +
+                    "updated_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
+                    ")");
+
+            st.execute("CREATE TABLE IF NOT EXISTS universe (" +
                     "ticker TEXT PRIMARY KEY," +
                     "code TEXT NOT NULL," +
                     "name TEXT NOT NULL," +
-                    "market TEXT," +
-                    "active INTEGER NOT NULL DEFAULT 1," +
+                    "market TEXT NULL," +
+                    "active BOOLEAN NOT NULL DEFAULT TRUE," +
                     "source TEXT NOT NULL," +
-                    "updated_at TEXT NOT NULL" +
+                    "updated_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
                     ")");
-            st.executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_code ON universe(code)");
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_universe_active ON universe(active)");
 
-            st.executeUpdate("CREATE TABLE IF NOT EXISTS bars_daily (" +
-                    "ticker TEXT NOT NULL," +
-                    "trade_date TEXT NOT NULL," +
-                    "open REAL NOT NULL," +
-                    "high REAL NOT NULL," +
-                    "low REAL NOT NULL," +
-                    "close REAL NOT NULL," +
-                    "volume REAL," +
-                    "source TEXT NOT NULL," +
-                    "updated_at TEXT NOT NULL," +
-                    "PRIMARY KEY (ticker, trade_date)," +
-                    "FOREIGN KEY (ticker) REFERENCES universe(ticker)" +
-                    ")");
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_bars_ticker_date ON bars_daily(ticker, trade_date)");
-
-            st.executeUpdate("CREATE TABLE IF NOT EXISTS runs (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+            st.execute("CREATE TABLE IF NOT EXISTS runs (" +
+                    "id BIGSERIAL PRIMARY KEY," +
                     "mode TEXT NOT NULL," +
-                    "started_at TEXT NOT NULL," +
-                    "finished_at TEXT," +
+                    "started_at TIMESTAMPTZ NOT NULL," +
+                    "finished_at TIMESTAMPTZ NULL," +
                     "status TEXT NOT NULL," +
                     "universe_size INTEGER NOT NULL DEFAULT 0," +
                     "scanned_size INTEGER NOT NULL DEFAULT 0," +
                     "candidate_size INTEGER NOT NULL DEFAULT 0," +
                     "top_n INTEGER NOT NULL DEFAULT 0," +
-                    "report_path TEXT," +
-                    "notes TEXT" +
+                    "report_path TEXT NULL," +
+                    "notes TEXT NULL" +
                     ")");
 
-            st.executeUpdate("CREATE TABLE IF NOT EXISTS candidates (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                    "run_id INTEGER NOT NULL," +
+            st.execute("CREATE TABLE IF NOT EXISTS candidates (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE," +
                     "rank_no INTEGER NOT NULL," +
                     "ticker TEXT NOT NULL," +
                     "code TEXT NOT NULL," +
-                    "name TEXT," +
-                    "market TEXT," +
-                    "score REAL NOT NULL," +
-                    "close REAL," +
+                    "name TEXT NULL," +
+                    "market TEXT NULL," +
+                    "score NUMERIC NOT NULL," +
+                    "close NUMERIC NULL," +
                     "reasons_json TEXT NOT NULL," +
                     "indicators_json TEXT NOT NULL," +
-                    "created_at TEXT NOT NULL," +
-                    "FOREIGN KEY (run_id) REFERENCES runs(id)" +
+                    "created_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
                     ")");
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_candidates_run_rank ON candidates(run_id, rank_no)");
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_candidates_ticker ON candidates(ticker)");
 
-            st.executeUpdate("CREATE TABLE IF NOT EXISTS scan_results (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                    "run_id INTEGER NOT NULL," +
+            st.execute("CREATE TABLE IF NOT EXISTS scan_results (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE," +
                     "ticker TEXT NOT NULL," +
-                    "code TEXT," +
-                    "market TEXT," +
-                    "data_source TEXT," +
-                    "price_timestamp TEXT," +
+                    "code TEXT NULL," +
+                    "market TEXT NULL," +
+                    "data_source TEXT NULL," +
+                    "price_timestamp DATE NULL," +
                     "bars_count INTEGER NOT NULL DEFAULT 0," +
-                    "last_close REAL," +
-                    "cache_hit INTEGER NOT NULL DEFAULT 0," +
-                    "fetch_latency_ms INTEGER NOT NULL DEFAULT 0," +
-                    "fetch_success INTEGER NOT NULL DEFAULT 0," +
-                    "indicator_ready INTEGER NOT NULL DEFAULT 0," +
-                    "candidate_ready INTEGER NOT NULL DEFAULT 0," +
+                    "last_close NUMERIC NULL," +
+                    "cache_hit BOOLEAN NOT NULL DEFAULT FALSE," +
+                    "fetch_latency_ms BIGINT NOT NULL DEFAULT 0," +
+                    "fetch_success BOOLEAN NOT NULL DEFAULT FALSE," +
+                    "indicator_ready BOOLEAN NOT NULL DEFAULT FALSE," +
+                    "candidate_ready BOOLEAN NOT NULL DEFAULT FALSE," +
                     "data_insufficient_reason TEXT NOT NULL DEFAULT 'NONE'," +
                     "failure_reason TEXT NOT NULL DEFAULT 'none'," +
-                    "request_failure_category TEXT," +
-                    "error TEXT," +
-                    "created_at TEXT NOT NULL," +
-                    "FOREIGN KEY (run_id) REFERENCES runs(id)" +
+                    "request_failure_category TEXT NULL," +
+                    "error TEXT NULL," +
+                    "created_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
                     ")");
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_scan_results_run_ticker ON scan_results(run_id, ticker)");
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_scan_results_run_failure ON scan_results(run_id, failure_reason)");
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_scan_results_run_insufficient ON scan_results(run_id, data_insufficient_reason)");
 
-            migrateLegacy(conn);
-
-            // Create after legacy migration in case started_at was added to an old runs table.
-            st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at DESC)");
-        }
-    }
-
-/**
- * 方法说明：migrateLegacy，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void migrateLegacy(Connection conn) throws SQLException {
-        ensureColumn(conn, "runs", "mode", "TEXT DEFAULT 'DAILY'");
-        ensureColumn(conn, "runs", "started_at", "TEXT");
-        ensureColumn(conn, "runs", "finished_at", "TEXT");
-        ensureColumn(conn, "runs", "status", "TEXT DEFAULT 'SUCCESS'");
-        ensureColumn(conn, "runs", "universe_size", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "runs", "scanned_size", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "runs", "candidate_size", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "runs", "top_n", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "runs", "report_path", "TEXT");
-
-        ensureColumn(conn, "scan_results", "code", "TEXT");
-        ensureColumn(conn, "scan_results", "market", "TEXT");
-        ensureColumn(conn, "scan_results", "data_source", "TEXT");
-        ensureColumn(conn, "scan_results", "price_timestamp", "TEXT");
-        ensureColumn(conn, "scan_results", "bars_count", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "scan_results", "last_close", "REAL");
-        ensureColumn(conn, "scan_results", "cache_hit", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "scan_results", "fetch_latency_ms", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "scan_results", "fetch_success", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "scan_results", "indicator_ready", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "scan_results", "candidate_ready", "INTEGER DEFAULT 0");
-        ensureColumn(conn, "scan_results", "data_insufficient_reason", "TEXT DEFAULT 'NONE'");
-        ensureColumn(conn, "scan_results", "failure_reason", "TEXT DEFAULT 'none'");
-        ensureColumn(conn, "scan_results", "request_failure_category", "TEXT");
-        ensureColumn(conn, "scan_results", "error", "TEXT");
-        ensureColumn(conn, "scan_results", "created_at", "TEXT");
-
-        Set<String> runCols = getColumns(conn, "runs");
-        if (runCols.contains("run_mode")) {
-            exec(conn, "UPDATE runs SET mode=COALESCE(mode, run_mode) WHERE mode IS NULL OR mode=''");
-        }
-        if (runCols.contains("run_at")) {
-            exec(conn, "UPDATE runs SET started_at=COALESCE(started_at, run_at)");
-            exec(conn, "UPDATE runs SET finished_at=COALESCE(finished_at, run_at)");
-        }
-        exec(conn, "UPDATE runs SET mode='DAILY' WHERE mode IS NULL OR mode=''");
-        exec(conn, "UPDATE runs SET started_at=COALESCE(started_at, datetime('now')) WHERE started_at IS NULL OR started_at=''");
-        exec(conn, "UPDATE runs SET status='SUCCESS' WHERE status IS NULL OR status=''");
-    }
-
-/**
- * 方法说明：ensureColumn，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void ensureColumn(Connection conn, String table, String column, String definition) throws SQLException {
-        Set<String> columns = getColumns(conn, table);
-        if (columns.contains(column.toLowerCase(Locale.ROOT))) {
-            return;
-        }
-        exec(conn, "ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
-    }
-
-/**
- * 方法说明：getColumns，负责获取数据并返回结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private Set<String> getColumns(Connection conn, String table) throws SQLException {
-        Set<String> out = new HashSet<>();
-        try (PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(" + table + ")");
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String name = rs.getString("name");
-                if (name != null) {
-                    out.add(name.toLowerCase(Locale.ROOT));
-                }
-            }
-        }
-        return out;
-    }
-
-/**
- * 方法说明：exec，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void exec(Connection conn, String sql) throws SQLException {
-        try (Statement st = conn.createStatement()) {
-            st.executeUpdate(sql);
+            st.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_code ON universe(code)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_universe_active ON universe(active)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_price_daily_ticker_date ON price_daily(ticker, trade_date DESC)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_indicators_daily_ticker_date ON indicators_daily(ticker, trade_date DESC)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_signals_run_ticker ON signals(run_id, ticker)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_signals_asof ON signals(as_of DESC)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs(run_id)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_run_logs_started ON run_logs(started_at DESC)");
+            st.execute("CREATE INDEX IF NOT EXISTS docs_ticker_published_idx ON docs(ticker, published_at DESC)");
+            st.execute("CREATE INDEX IF NOT EXISTS docs_embedding_ivfflat ON docs USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at DESC)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_candidates_run_rank ON candidates(run_id, rank_no)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_candidates_ticker ON candidates(ticker)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_scan_results_run_ticker ON scan_results(run_id, ticker)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_scan_results_run_failure ON scan_results(run_id, failure_reason)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_scan_results_run_insufficient ON scan_results(run_id, data_insufficient_reason)");
         }
     }
 }

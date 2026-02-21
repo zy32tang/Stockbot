@@ -474,6 +474,24 @@ run 状态集合：
 5. `app.top_n_override`、`app.reset_batch` 仅在配置里，主入口未读取。
 6. `RunDao.findLatestDailyRunWithReport()` 与 `ReportBuilder.buildMailText()` 当前未被入口链路调用。
 
+## 15. Docker 快捷操作（改代码后）
+
+目标：尽量避免每次都 `docker compose down`。
+
+1. 首次或需要数据库时：
+   - `docker compose up -d postgres`
+2. 改了 Java 代码后，跑一次测试（自动重建 app 镜像）：
+   - `docker compose run --rm --build --no-deps app --test`
+3. 只改 `watchlist.txt` / `config.properties`（已挂载，不必重建）：
+   - `docker compose run --rm --no-deps app --test`
+4. 需要让 app 常驻并使用新代码：
+   - `docker compose up -d --build app`
+5. 需要彻底停止时：
+   - `docker compose down`
+
+PowerShell 一行（常用）：
+- `docker compose up -d postgres; docker compose run --rm --build --no-deps app --test`
+
 ---
 
 如后续改动入口分发、分段恢复、Top5 选择、邮件附件处理或 DB 表结构，建议优先同步本文件第 2/5/9/10/11/14 节。

@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+ide_backups
+.pgdata
+outputs
+target
+
+config.properties
+watchlist copy.txt
+
+README_JP_SCANNER.md
+BUSINESS_LOGIC_SUMMARY.md

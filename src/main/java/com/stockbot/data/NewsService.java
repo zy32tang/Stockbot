@@ -34,7 +34,11 @@ public class NewsService {
             "marketwatch",
             "wsj",
             "nytimes",
-            "yahoonews"
+            "yahoonews",
+            "investing",
+            "ft",
+            "guardian",
+            "seekingalpha"
     );
     private static final Set<String> TOKEN_STOPWORDS = Set.of(
             "stock", "stocks", "market", "news", "share", "shares", "company", "companies",
@@ -59,7 +63,7 @@ public class NewsService {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public NewsService(HttpClientEx http, String lang, String region, int maxItems) {
-        this(http, lang, region, maxItems, "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews", 4);
+        this(http, lang, region, maxItems, "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews,investing,ft,guardian,seekingalpha", 4);
     }
 
 /**
@@ -129,6 +133,22 @@ public class NewsService {
                 }
                 if ("yahoonews".equals(source)) {
                     merge(merged, filterByRelevance(fetchYahooNewsTopRss(staticFeedFetchLimit()), tokens, maxItems));
+                    continue;
+                }
+                if ("investing".equals(source)) {
+                    merge(merged, filterByRelevance(fetchInvestingNewsRss(staticFeedFetchLimit()), tokens, maxItems));
+                    continue;
+                }
+                if ("ft".equals(source)) {
+                    merge(merged, filterByRelevance(fetchFtCompaniesRss(staticFeedFetchLimit()), tokens, maxItems));
+                    continue;
+                }
+                if ("guardian".equals(source)) {
+                    merge(merged, filterByRelevance(fetchGuardianBusinessRss(staticFeedFetchLimit()), tokens, maxItems));
+                    continue;
+                }
+                if ("seekingalpha".equals(source)) {
+                    merge(merged, filterByRelevance(fetchSeekingAlphaRss(staticFeedFetchLimit()), tokens, maxItems));
                 }
             }
 
@@ -184,6 +204,22 @@ public class NewsService {
  */
     public List<NewsItem> fetchYahooNewsTopRss(int limit) {
         return fetchRss("https://news.yahoo.com/rss", limit);
+    }
+
+    public List<NewsItem> fetchInvestingNewsRss(int limit) {
+        return fetchRss("https://www.investing.com/rss/news.rss", limit);
+    }
+
+    public List<NewsItem> fetchFtCompaniesRss(int limit) {
+        return fetchRss("https://www.ft.com/companies?format=rss", limit);
+    }
+
+    public List<NewsItem> fetchGuardianBusinessRss(int limit) {
+        return fetchRss("https://www.theguardian.com/business/rss", limit);
+    }
+
+    public List<NewsItem> fetchSeekingAlphaRss(int limit) {
+        return fetchRss("https://seekingalpha.com/feed.xml", limit);
     }
 
 /**
@@ -369,6 +405,10 @@ public class NewsService {
         if ("wsj".equals(source)) return "WSJMarketsRSS";
         if ("nytimes".equals(source)) return "NYTimesBusinessRSS";
         if ("yahoonews".equals(source)) return "YahooNewsRSS";
+        if ("investing".equals(source)) return "InvestingRSS";
+        if ("ft".equals(source)) return "FTCompaniesRSS";
+        if ("guardian".equals(source)) return "GuardianBusinessRSS";
+        if ("seekingalpha".equals(source)) return "SeekingAlphaRSS";
         return source;
     }
 

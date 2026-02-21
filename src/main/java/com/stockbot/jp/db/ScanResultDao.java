@@ -9,34 +9,23 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 模块说明：ScanResultDao（class）。
- * 主要职责：承载 db 模块 的关键逻辑，对外提供可复用的调用入口。
- * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ * DAO for ticker scan diagnostics.
  */
 public final class ScanResultDao {
     private final Database database;
 
-/**
- * 方法说明：ScanResultDao，负责初始化对象并装配依赖参数。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public ScanResultDao(Database database) {
         this.database = database;
     }
 
-/**
- * 方法说明：insertBatch，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public void insertBatch(long runId, List<TickerScanResult> results) throws SQLException {
         if (runId <= 0 || results == null || results.isEmpty()) {
             return;
@@ -44,7 +33,7 @@ public final class ScanResultDao {
         String sql = "INSERT INTO scan_results(run_id, ticker, code, market, data_source, price_timestamp, bars_count, last_close, cache_hit, " +
                 "fetch_latency_ms, fetch_success, indicator_ready, candidate_ready, data_insufficient_reason, failure_reason, request_failure_category, error, created_at) " +
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        Instant now = Instant.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         try (Connection conn = database.connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             conn.setAutoCommit(false);
@@ -57,14 +46,14 @@ public final class ScanResultDao {
                 ps.setString(3, result.universe.code);
                 ps.setString(4, result.universe.market);
                 ps.setString(5, result.dataSource);
-                ps.setString(6, result.lastTradeDate == null ? null : result.lastTradeDate.toString());
+                ps.setObject(6, result.lastTradeDate);
                 ps.setInt(7, Math.max(0, result.barsCount));
                 ps.setObject(8, Double.isFinite(result.lastClose) && result.lastClose > 0.0 ? result.lastClose : null);
-                ps.setInt(9, result.cacheHit ? 1 : 0);
+                ps.setBoolean(9, result.cacheHit);
                 ps.setLong(10, Math.max(0L, result.fetchLatencyMs));
-                ps.setInt(11, result.fetchSuccess ? 1 : 0);
-                ps.setInt(12, result.indicatorReady ? 1 : 0);
-                ps.setInt(13, result.candidate != null ? 1 : 0);
+                ps.setBoolean(11, result.fetchSuccess);
+                ps.setBoolean(12, result.indicatorReady);
+                ps.setBoolean(13, result.candidate != null);
                 ps.setString(14, result.dataInsufficientReason == null
                         ? DataInsufficientReason.NONE.name()
                         : result.dataInsufficientReason.name());
@@ -73,7 +62,7 @@ public final class ScanResultDao {
                         : result.failureReason.label());
                 ps.setString(16, result.requestFailureCategory);
                 ps.setString(17, result.error);
-                ps.setString(18, now.toString());
+                ps.setObject(18, now);
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -81,11 +70,6 @@ public final class ScanResultDao {
         }
     }
 
-/**
- * 方法说明：summarizeByRun，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public ScanResultSummary summarizeByRun(long runId) throws SQLException {
         Map<ScanFailureReason, Integer> failureCounts = new EnumMap<>(ScanFailureReason.class);
         for (ScanFailureReason reason : ScanFailureReason.values()) {
@@ -108,8 +92,8 @@ public final class ScanResultDao {
         try (Connection conn = database.connect()) {
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT COUNT(*) AS total, " +
-                            "SUM(CASE WHEN fetch_success=1 THEN 1 ELSE 0 END) AS fetch_coverage, " +
-                            "SUM(CASE WHEN indicator_ready=1 THEN 1 ELSE 0 END) AS indicator_coverage " +
+                            "SUM(CASE WHEN fetch_success THEN 1 ELSE 0 END) AS fetch_coverage, " +
+                            "SUM(CASE WHEN indicator_ready THEN 1 ELSE 0 END) AS indicator_coverage " +
                             "FROM scan_results WHERE run_id=?"
             )) {
                 ps.setLong(1, runId);
@@ -168,11 +152,6 @@ public final class ScanResultDao {
         return new ScanResultSummary(total, fetchCoverage, indicatorCoverage, failureCounts, requestFailureCounts, insufficientCounts);
     }
 
-/**
- * 方法说明：dataSourceCountsByRun，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public Map<String, Integer> dataSourceCountsByRun(long runId) throws SQLException {
         Map<String, Integer> out = new LinkedHashMap<>();
         out.put("yahoo", 0);
@@ -198,11 +177,6 @@ public final class ScanResultDao {
         return Map.copyOf(out);
     }
 
-/**
- * 方法说明：mapRequestCategory，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     private ScanFailureReason mapRequestCategory(String rawCategory) {
         String category = rawCategory == null ? "" : rawCategory.trim().toLowerCase();
         if ("timeout".equals(category)) {

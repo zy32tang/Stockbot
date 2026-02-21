@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: stockbot-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: stockbot
+      POSTGRES_USER: stockbot
+      POSTGRES_PASSWORD: stockbot
+    volumes:
+      - ./.pgdata:/var/lib/postgresql/data
+      - ./db/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./db/002_tables.sql:/docker-entrypoint-initdb.d/002_tables.sql:ro
+      - ./db/003_indexes.sql:/docker-entrypoint-initdb.d/003_indexes.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stockbot -d stockbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stockbot-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      STOCKBOT_DB_URL: jdbc:postgresql://postgres:5432/stockbot
+      STOCKBOT_DB_USER: stockbot
+      STOCKBOT_DB_PASS: stockbot
+      TZ: Asia/Tokyo
+    volumes:
+      - ./outputs:/app/outputs
+      - ./config.properties:/app/config.properties
+      - ./watchlist.txt:/app/watchlist.txt
+    restart: unless-stopped

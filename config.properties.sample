@@ -1,0 +1,16 @@
+# Local override sample for StockBot
+# These values can be overridden by environment variables:
+# STOCKBOT_DB_URL, STOCKBOT_DB_USER, STOCKBOT_DB_PASS
+
+# PostgreSQL connection (default backend)
+db.url=jdbc:postgresql://localhost:5432/stockbot
+db.user=stockbot
+db.pass=stockbot
+db.schema=stockbot
+
+# Keep SQL log enabled during setup/debug
+db.sql_log.enabled=true
+
+# Optional
+email.enabled=false
+watchlist.path=watchlist.txt
