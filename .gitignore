@@ -54,3 +54,4 @@ temp/
 *.tmp
 *.swp
 *.swo
+config.properties

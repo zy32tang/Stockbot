@@ -492,6 +492,26 @@ run 状态集合：
 PowerShell 一行（常用）：
 - `docker compose up -d postgres; docker compose run --rm --build --no-deps app --test`
 
+### 15.1 按参数快捷指令
+
+先确保数据库已启动：
+
+- `docker compose up -d postgres`
+
+改了 Java 代码后（需要重建）：
+
+- `docker compose run --rm --build --no-deps app --help`
+- `docker compose run --rm --build --no-deps app --test`
+- `docker compose run --rm --build --no-deps app --reset-batch`
+- `docker compose run --rm --build --no-deps app --migrate-sqlite-to-postgres --sqlite-path outputs/stockbot.db`
+
+只改 `watchlist.txt` / `config.properties`（无需重建）：
+
+- `docker compose run --rm --no-deps app --help`
+- `docker compose run --rm --no-deps app --test`
+- `docker compose run --rm --no-deps app --reset-batch`
+- `docker compose run --rm --no-deps app --migrate-sqlite-to-postgres --sqlite-path outputs/stockbot.db`
+
 ---
 
 如后续改动入口分发、分段恢复、Top5 选择、邮件附件处理或 DB 表结构，建议优先同步本文件第 2/5/9/10/11/14 节。
