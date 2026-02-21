@@ -3,10 +3,13 @@ package com.stockbot.jp.plan;
 import com.stockbot.core.diagnostics.CauseCode;
 import com.stockbot.core.diagnostics.Outcome;
 import com.stockbot.jp.config.Config;
+import com.stockbot.jp.model.WatchlistAnalysis;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -16,6 +19,7 @@ import java.util.Map;
  */
 public final class TradePlanBuilder {
     public static final String OWNER = "com.stockbot.jp.plan.TradePlanBuilder#build(...)";
+    public static final String OWNER_WATCH = "com.stockbot.jp.plan.TradePlanBuilder#buildForWatchlist(...)";
 
     private final Config config;
 
@@ -126,6 +130,48 @@ public final class TradePlanBuilder {
         return Outcome.success(plan, OWNER, details);
     }
 
+    public Outcome<TradePlan> buildForWatchlist(WatchlistAnalysis w) {
+        if (w == null) {
+            return Outcome.failure(CauseCode.PLAN_INVALID, OWNER_WATCH, Map.of("missing_inputs", List.of("watchlist_row")));
+        }
+
+        JSONObject root = safeJson(w.technicalIndicatorsJson);
+        double lastClose = firstFinitePositive(
+                root.optDouble("last_close", Double.NaN),
+                w.lastClose
+        );
+        double sma20 = root.optDouble("sma20", Double.NaN);
+        double lowLookback = firstFinitePositive(
+                root.optDouble("low_lookback", Double.NaN),
+                root.optDouble("bollinger_lower", Double.NaN)
+        );
+        double highLookback = firstFinitePositive(
+                root.optDouble("high_lookback", Double.NaN),
+                root.optDouble("bollinger_upper", Double.NaN)
+        );
+        double atr14 = root.optDouble("atr14", Double.NaN);
+
+        List<String> missing = new ArrayList<>();
+        if (!isFinitePositive(lastClose)) missing.add("last_close");
+        if (!isFinitePositive(sma20)) missing.add("sma20");
+        if (!isFinitePositive(lowLookback)) missing.add("low_lookback");
+        if (!isFinitePositive(highLookback)) missing.add("high_lookback");
+
+        if (!missing.isEmpty()) {
+            return Outcome.failure(
+                    CauseCode.PLAN_INVALID,
+                    OWNER_WATCH,
+                    Map.of(
+                            "missing_inputs", missing,
+                            "watch_item", safeText(w.watchItem),
+                            "ticker", safeText(w.ticker).toUpperCase(Locale.ROOT)
+                    )
+            );
+        }
+
+        return build(new Input(lastClose, sma20, lowLookback, highLookback, atr14));
+    }
+
 /**
  * 方法说明：isFinitePositive，负责判断条件是否满足。
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
@@ -168,6 +214,21 @@ public final class TradePlanBuilder {
             return value;
         }
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    private JSONObject safeJson(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return new JSONObject();
+        }
+        try {
+            return new JSONObject(raw);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private String safeText(String text) {
+        return text == null ? "" : text.trim();
     }
 
     public static final class Input {

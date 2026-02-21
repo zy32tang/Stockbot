@@ -16,6 +16,7 @@ import com.stockbot.jp.model.RunRow;
 import com.stockbot.jp.model.ScoredCandidate;
 import com.stockbot.jp.model.WatchlistAnalysis;
 import com.stockbot.jp.output.Mailer;
+import com.stockbot.jp.output.ReportBuilder;
 import com.stockbot.jp.runner.DailyRunner;
 import com.stockbot.jp.vector.EventMemoryService;
 import com.stockbot.jp.vector.VectorSearchService;
@@ -61,6 +62,7 @@ public final class StockBotApplication {
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern REPORT_TS_PATTERN = Pattern.compile("jp_daily_(\\d{8}_\\d{6})\\.html", Pattern.CASE_INSENSITIVE);
+    private static final Pattern INDICATOR_COVERAGE_PCT_PATTERN = Pattern.compile("INDICATOR_COVERAGE[^\\n%]*\\(([0-9]+(?:\\.[0-9]+)?)%\\)", Pattern.CASE_INSENSITIVE);
     private static volatile boolean LOG_ROUTE_INSTALLED = false;
     private static final String BG_SCAN_LAST_STARTUP_KEY = "daily.background_scan.last_startup_at";
     private static final Duration BG_SCAN_TRIGGER_INTERVAL = Duration.ofHours(8);
@@ -439,7 +441,7 @@ private int sendTestDailyReportEmail(
         Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
         String subject = String.format(
                 Locale.US,
-                "%s 每日报告 %s 候选数 %d [run_id=%d]",
+                "%s 每日报呁E%s 候选数 %d [run_id=%d]",
                 settings.subjectPrefix,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(runAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size(),
@@ -465,19 +467,27 @@ private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutco
         settings.enabled = true;
 
         ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
+        boolean noviceMode = cmd != null && cmd.hasOption("novice");
         String rawHtml = Files.readString(outcome.reportPath, StandardCharsets.UTF_8);
-        List<Path> attachments = collectReportAttachments(rawHtml, outcome.reportPath);
-        String html = stripTrendImagesFromHtml(rawHtml);
+        List<Path> attachments = noviceMode ? List.of() : collectReportAttachments(rawHtml, outcome.reportPath);
+        String html = noviceMode ? "" : stripTrendImagesFromHtml(rawHtml);
         String text = "";
+        if (noviceMode) {
+            double indicatorCoveragePct = parseIndicatorCoveragePct(rawHtml);
+            ReportBuilder reportBuilder = new ReportBuilder(config);
+            ReportBuilder.RunType runType = ReportBuilder.detectRunType(outcome.startedAt, zoneId);
+            text = reportBuilder.buildNoviceActionSummary(indicatorCoveragePct, runType, outcome.watchlistCandidates);
+        }
+
         String subject = String.format(
                 Locale.US,
-                "%s 每日报告 %s 候选数 %d",
+                "%s DAILY %s top %d",
                 settings.subjectPrefix,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(outcome.startedAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size()
         );
         mailer.send(settings, subject, text, html, attachments);
-        System.out.println("Email sent to " + String.join(",", settings.to));
+        System.out.println("Email sent to " + String.join(",", settings.to) + (noviceMode ? " [novice]" : ""));
     }
 
 private void logDailySections(DailyRunOutcome outcome, Config config) {
@@ -602,6 +612,21 @@ private String stripTrendImagesFromHtml(String html) {
         return out;
     }
 
+    private double parseIndicatorCoveragePct(String rawHtml) {
+        if (rawHtml == null || rawHtml.isEmpty()) {
+            return 0.0;
+        }
+        Matcher m = INDICATOR_COVERAGE_PCT_PATTERN.matcher(rawHtml);
+        if (!m.find()) {
+            return 0.0;
+        }
+        try {
+            return Double.parseDouble(m.group(1));
+        } catch (Exception ignored) {
+            return 0.0;
+        }
+    }
+
 private String safe(String value) {
         return value == null ? "" : value;
     }
@@ -618,6 +643,7 @@ private Options buildOptions() {
         Options options = new Options();
         options.addOption(Option.builder().longOpt("reset-batch").desc("clear batch checkpoint and background startup trigger checkpoint, then exit").build());
         options.addOption(Option.builder().longOpt("test").desc("rebuild DAILY report from latest market scan data and send test email (no full-market rescan)").build());
+        options.addOption(Option.builder().longOpt("novice").desc("send novice action-only mail body (max 10 lines)").build());
         options.addOption(Option.builder().longOpt("migrate-sqlite-to-postgres").desc("one-off migrate data from SQLite into PostgreSQL").build());
         options.addOption(Option.builder().longOpt("sqlite-path").hasArg().argName("path").desc("path to source SQLite database file").build());
         options.addOption(Option.builder().longOpt("help").desc("show help").build());

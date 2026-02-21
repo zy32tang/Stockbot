@@ -43,6 +43,8 @@ $RECYCLE.BIN/
 !.env.example
 *.local
 *.secret
+*.properties
+!/.mvn/wrapper/maven-wrapper.properties
 config.local.properties
 watchlist.local.txt
 watchlist_smoke.txt
@@ -54,4 +56,7 @@ temp/
 *.tmp
 *.swp
 *.swo
-config.properties
+/gmailsetting.txt
+*.secrets*
+*.key
+*.env

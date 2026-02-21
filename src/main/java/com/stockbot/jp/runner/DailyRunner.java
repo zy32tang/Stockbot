@@ -1596,6 +1596,15 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
         if (normalized.endsWith(".JP")) {
             return normalized.substring(0, normalized.length() - 3) + ".T";
         }
+        if (normalized.endsWith(".US")) {
+            return normalized.substring(0, normalized.length() - 3);
+        }
+        if (normalized.endsWith(".NQ") || normalized.endsWith(".N")) {
+            int cut = normalized.lastIndexOf('.');
+            if (cut > 0) {
+                return normalized.substring(0, cut);
+            }
+        }
         if (record != null && record.code != null && record.code.trim().matches("\\d{4,6}")) {
             return record.code.trim() + ".T";
         }

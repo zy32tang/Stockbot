@@ -217,7 +217,7 @@ public final class ReportBuilder {
                 diag
         );
 
-        ActionAdvice advice = actionAdvice(fetchCoveragePct, indicatorCoveragePct, candidateSize, topSelection.cards);
+        ActionAdvice advice = actionAdviceV2(fetchCoveragePct, indicatorCoveragePct, candidateSize, topSelection.cards);
         int horizonDays = Math.max(1, config.getInt("backtest.hold_days", 10));
         double singleMaxPct = clamp(config.getDouble("report.position.max_single_pct", config.getDouble("position.single.maxPct", 0.05) * 100.0), 0.0, 100.0) / 100.0;
         double totalMaxPct = clamp(config.getDouble("report.position.max_total_pct", config.getDouble("position.total.maxPct", 0.50) * 100.0), 0.0, 100.0) / 100.0;
@@ -252,14 +252,15 @@ public final class ReportBuilder {
                 marketRunDenominator
         );
         appendSystemStatus(sb, summary, diag);
+        appendNoviceDecisionCard(sb, advice, fetchCoveragePct, indicatorCoveragePct, runType, watchRows, topSelection, diag);
         appendActionAdvice(sb, advice, singleMaxPct, totalMaxPct);
-        appendWatchTable(sb, watchRows, isClose);
+        appendWatchTableV2(sb, watchRows, isClose);
         appendWatchAiSummary(sb, watchRows);
-        appendTopCards(sb, topSelection, isClose, hideEntryInIntraday, diag);
-        appendPolymarketSignals(sb, polymarketReport, diag);
+        appendTopCardsV2(sb, topSelection, isClose, hideEntryInIntraday, diag);
+        appendPolymarketSignalsV2(sb, polymarketReport, diag);
         appendDisclaimer(sb);
-        appendConfigOverview(sb, diag);
-        appendDiagnostics(sb, diag);
+        appendConfigOverviewCollapsed(sb, diag);
+        appendDiagnosticsCollapsed(sb, diag);
         sb.append("</div></body></html>");
         return sb.toString();
     }
@@ -284,6 +285,54 @@ public final class ReportBuilder {
         double coverage = coveragePct(universeSize, scannedSize);
         return String.format(Locale.US, "StockBot JP report | run=%s | coverage=%.1f%% | candidates=%d | topN=%d",
                 DISPLAY_TS.format(startedAt.atZone(zoneId)), coverage, candidateSize, topN);
+    }
+
+    public String buildNoviceActionSummary(double indicatorCoveragePct, RunType runType, List<WatchlistAnalysis> watchRows) {
+        boolean isClose = runType == RunType.CLOSE;
+        List<WatchDecisionRow> rows = new ArrayList<>();
+        if (watchRows != null) {
+            for (WatchlistAnalysis row : watchRows) {
+                rows.add(new WatchDecisionRow(row, decideForWatchAction(row, isClose)));
+            }
+        }
+        rows.sort(Comparator
+                .comparingInt((WatchDecisionRow x) -> watchActionPriority(x.decision.action)).reversed()
+                .thenComparingDouble(x -> x.row == null ? 0.0 : x.row.technicalScore).reversed());
+
+        StringBuilder sb = new StringBuilder(512);
+        sb.append("今日结论：").append(noviceConclusion(indicatorCoveragePct)).append("\n");
+        int count = 0;
+        for (WatchDecisionRow row : rows) {
+            if (row == null || row.decision == null || "WAIT".equals(row.decision.action)) {
+                continue;
+            }
+            WatchlistAnalysis w = row.row;
+            TradePlan p = row.decision.plan;
+            String reason = row.decision.reason1 + (blankTo(row.decision.reason2, "").isEmpty() ? "" : ("；" + row.decision.reason2));
+            sb.append("[")
+                    .append(row.decision.action)
+                    .append("] ")
+                    .append(safeText(plainCode(w)))
+                    .append(" ")
+                    .append(safeText(plainName(w)))
+                    .append(" 现价")
+                    .append(fmt2(w == null ? Double.NaN : w.lastClose))
+                    .append(" 止损")
+                    .append(p != null && p.valid ? fmt2(p.stopLoss) : "-")
+                    .append(" 目标")
+                    .append(p != null && p.valid ? fmt2(p.takeProfit) : "-")
+                    .append(" 理由:")
+                    .append(safeText(reason))
+                    .append("\n");
+            count++;
+            if (count >= 5) {
+                break;
+            }
+        }
+        if (count == 0) {
+            sb.append("今日无明确动作（仅观察）");
+        }
+        return sb.toString().trim();
     }
 
 /**
@@ -422,7 +471,7 @@ public final class ReportBuilder {
             );
         }
         sb.append("7) 近30日 Top5 胜率/最大回撤：")
-                .append(renderFeatureStatus("report.metrics.top5_perf.enabled", perf, summary))
+                .append(renderFeatureStatusV2("report.metrics.top5_perf.enabled", perf, summary))
                 .append("<br>");
         sb.append("</div>");
     }
@@ -447,6 +496,91 @@ public final class ReportBuilder {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
+    private void appendNoviceDecisionCard(
+            StringBuilder sb,
+            ActionAdvice advice,
+            double fetchCoveragePct,
+            double indicatorCoveragePct,
+            RunType runType,
+            List<WatchlistAnalysis> watchRows,
+            CandidateSelection topSelection,
+            Diagnostics diag
+    ) {
+        WatchDecisionRow best = pickBestWatchDecision(watchRows, runType == RunType.CLOSE);
+        sb.append("<h2>C0. 小白模式：今日决策卡（只看这一段）</h2><div class='card'>");
+        sb.append("<div class='small'>1) 今日结论：<b>").append(escape(noviceConclusion(indicatorCoveragePct))).append("</b></div>");
+        if (best == null || best.decision == null || "WAIT".equals(best.decision.action)) {
+            sb.append("<div class='small'>2) 今日最值得看的自选股：无（今日信号不足）</div>");
+        } else {
+            sb.append("<div class='small'>2) 今日最值得看的自选股：")
+                    .append(escape(watchName(best.row)))
+                    .append(" [")
+                    .append(escape(best.decision.action))
+                    .append("]</div>");
+        }
+        sb.append("<div class='small'>3) 今日买入条件：分数≥80 且 信号=触发</div>");
+        sb.append("<div class='small'>4) 今日买入条件：风险≠高</div>");
+        sb.append("<div class='small'>5) 今日买入条件：有入场/止损（plan valid）</div>");
+        sb.append("<div class='small'>6) 今日卖出/减仓条件：跌破止损 -> 直接止损</div>");
+        sb.append("<div class='small'>7) 今日卖出/减仓条件：分数跌破65 且 风险=高 -> 减仓/退出</div>");
+        if (indicatorCoveragePct < 50.0) {
+            sb.append("<div class='small'>8) 数据可信度：指标覆盖不足（").append(fmt1(indicatorCoveragePct)).append("%），今日不要依据 Top5 做交易</div>");
+        } else {
+            sb.append("<div class='small'>8) 数据可信度：指标覆盖正常（").append(fmt1(indicatorCoveragePct)).append("%），可参考 Top5，但仍需按止损执行</div>");
+        }
+        sb.append("</div>");
+    }
+
+    private void appendWatchTableV2(StringBuilder sb, List<WatchlistAnalysis> watchRows, boolean isClose) {
+        sb.append("<h2>D. 自选股动作表</h2>");
+        sb.append("<table><tr>")
+                .append("<th>代码+名称</th>")
+                .append("<th>最新价</th>")
+                .append("<th>我的动作</th>")
+                .append("<th>理由（最多2条）</th>")
+                .append("<th>入场区间</th>")
+                .append("<th>止损位</th>")
+                .append("<th>目标位</th>")
+                .append("</tr>");
+        if (watchRows == null || watchRows.isEmpty()) {
+            sb.append("<tr><td colspan='7'>无自选股数据</td></tr></table>");
+            return;
+        }
+        for (WatchlistAnalysis row : watchRows) {
+            WatchDecision decision = decideForWatchAction(row, isClose);
+            TradePlan plan = decision.plan;
+            JSONObject trace = safeJson(row == null ? "" : row.technicalReasonsJson).optJSONObject("fetch_trace");
+
+            sb.append("<tr").append(row != null && row.priceSuspect ? " class='suspect'" : "").append("><td>");
+            sb.append(escape(watchName(row)));
+            sb.append("<details><summary class='small'>trace</summary><div class='small'>");
+            sb.append("data_source=").append(escape(row == null ? "" : row.dataSource)).append(" | ");
+            sb.append("price_timestamp=").append(escape(row == null ? "" : row.priceTimestamp)).append(" | ");
+            sb.append("bars_count=").append(row == null ? 0 : row.barsCount).append(" | ");
+            sb.append("cache_hit=").append(row != null && row.cacheHit).append(" | ");
+            sb.append("fetch_latency_ms=").append(row == null ? 0L : row.fetchLatencyMs);
+            if (trace != null) {
+                sb.append(" | ticker_normalized=").append(escape(trace.optString("ticker_normalized", "")));
+                sb.append(" | resolved_exchange=").append(escape(trace.optString("resolved_exchange", "")));
+                sb.append(" | fallback_path=").append(escape(trace.optString("fallback_path", "")));
+            }
+            sb.append("</div></details></td>");
+
+            sb.append("<td>").append(fmt2(row == null ? Double.NaN : row.lastClose)).append("</td>");
+            sb.append("<td><span class='chip ").append(watchActionCss(decision.action)).append("'>").append(escape(decision.action)).append("</span></td>");
+            sb.append("<td><div class='small'>- ").append(escape(decision.reason1)).append("</div>");
+            if (!blankTo(decision.reason2, "").isEmpty()) {
+                sb.append("<div class='small'>- ").append(escape(decision.reason2)).append("</div>");
+            }
+            sb.append("</td>");
+            sb.append("<td>").append(isClose && plan != null && plan.valid ? (fmt2(plan.entryLow) + " ~ " + fmt2(plan.entryHigh)) : "-").append("</td>");
+            sb.append("<td>").append(plan != null && plan.valid ? fmt2(plan.stopLoss) : "-").append("</td>");
+            sb.append("<td>").append(plan != null && plan.valid ? fmt2(plan.takeProfit) : "-").append("</td>");
+            sb.append("</tr>");
+        }
+        sb.append("</table>");
+    }
+
     private void appendWatchTable(StringBuilder sb, List<WatchlistAnalysis> watchRows, boolean isClose) {
         sb.append("<h2>D. 自选股跟踪（精简表格）</h2>");
         sb.append("<table><tr><th>代码+名称</th><th>最新价</th><th>综合分(0-100)</th><th>风险等级</th><th>信号状态</th><th>")
@@ -528,6 +662,41 @@ public final class ReportBuilder {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
+    private void appendTopCardsV2(StringBuilder sb, CandidateSelection topSelection, boolean isClose, boolean hideEntryInIntraday, Diagnostics diagnostics) {
+        sb.append("<h2>E. 今日 Top5</h2>");
+        appendTopFunnel(sb, topSelection.funnel, topSelection.skipReason, diagnostics);
+        boolean noviceWarn = topSelection.cards.stream().anyMatch(c -> c.risk.grade == RiskGrade.HIGH || containsRiskTag(c.risk.tags, "HIGH_VOL") || containsRiskTag(c.risk.tags, "DOWN_TREND"));
+        if (noviceWarn) {
+            sb.append("<div class='warnbox'>Top5 多为高波动/下跌趋势反弹票，新手默认不参与（仅观察）</div>");
+        }
+        if (topSelection.cards.isEmpty()) {
+            sb.append("<div class='warnbox'>行情/指标缺失：今日仅观察，不交易</div>");
+            return;
+        }
+        for (CandidateCard card : topSelection.cards) {
+            String riskCss = card.risk.grade == RiskGrade.HIGH ? "bad" : (card.risk.grade == RiskGrade.MID ? "warn" : "good");
+            sb.append("<div class='card'><div><b>#").append(card.rank).append(" ").append(escape(card.name)).append("</b></div>");
+            sb.append("<div class='small'>最新价 ").append(fmt2(card.latestPrice))
+                    .append(" | 评分 <span class='chip info'>").append(fmt1(card.score)).append("</span>")
+                    .append(" | 风险 <span class='chip ").append(riskCss).append("'>").append(escape(riskText(card.risk))).append("</span></div>");
+            if (card.plan.valid && (isClose || !hideEntryInIntraday)) {
+                sb.append("<div class='small'>入场 ").append(fmt2(card.plan.entryLow)).append(" ~ ").append(fmt2(card.plan.entryHigh))
+                        .append(" | 止损 ").append(fmt2(card.plan.stopLoss))
+                        .append(" | 目标 ").append(fmt2(card.plan.takeProfit))
+                        .append(" | 盈亏比 ").append(fmt2(card.plan.rrRatio)).append("</div>");
+            } else if (card.plan.valid) {
+                sb.append("<div class='small'>止损 ").append(fmt2(card.plan.stopLoss)).append("</div>");
+            } else {
+                sb.append("<div class='small'>计划无效：行情/指标缺失：今日仅观察，不交易</div>");
+            }
+            sb.append("<details><summary class='small'>signals</summary><ul class='bul'>");
+            for (String reason : card.reasons) {
+                sb.append("<li>").append(escape(reason)).append("</li>");
+            }
+            sb.append("</ul></details></div>");
+        }
+    }
+
     private void appendTopCards(StringBuilder sb, CandidateSelection topSelection, boolean isClose, boolean hideEntryInIntraday, Diagnostics diagnostics) {
         sb.append("<h2>E. 今日 Top 5 候选</h2>");
         appendTopFunnel(sb, topSelection.funnel, topSelection.skipReason, diagnostics);
@@ -626,6 +795,41 @@ public final class ReportBuilder {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
+    private void appendPolymarketSignalsV2(StringBuilder sb, PolymarketSignalReport report, Diagnostics diagnostics) {
+        sb.append("<h2>F. Polymarket Signals</h2>");
+        FeatureResolution feature = diagnostics == null ? null : diagnostics.feature("polymarket");
+        if ((feature != null && feature.status != FeatureStatus.ENABLED) || report == null || !report.enabled) {
+            sb.append("<div class='warnbox'>该模块未开启（不影响买卖信号，只是少了统计/解释）</div>");
+            return;
+        }
+        if (report.signals.isEmpty()) {
+            sb.append("<div class='warnbox'>行情/指标缺失：今日仅观察，不交易</div>");
+            return;
+        }
+        for (PolymarketTopicSignal signal : report.signals) {
+            sb.append("<div class='card'><div class='small'><b>Topic: ").append(escape(signal.topic))
+                    .append(" | Prob: ").append(fmt1(signal.impliedProbabilityPct)).append("%")
+                    .append(" | 24h: ").append(signed(signal.change24hPct)).append("%")
+                    .append(" | OI: ").append(escape(signal.oiDirection))
+                    .append("</b></div>");
+            sb.append("<div class='small'>Likely industries: ")
+                    .append(escape(signal.likelyIndustries.isEmpty() ? "Unknown" : String.join(", ", signal.likelyIndustries)))
+                    .append("</div>");
+            sb.append("<div class='small'>Watchlist impact: ");
+            if (signal.watchImpacts == null || signal.watchImpacts.isEmpty()) {
+                sb.append("暂无明显影响");
+            } else {
+                List<String> parts = new ArrayList<>();
+                for (PolymarketWatchImpact impact : signal.watchImpacts) {
+                    String direction = "positive".equalsIgnoreCase(impact.impact) ? "+" : ("negative".equalsIgnoreCase(impact.impact) ? "-" : "=");
+                    parts.add(impact.code + "(" + direction + "," + fmt1(impact.confidence) + "," + trimText(impact.rationale, 30) + ")");
+                }
+                sb.append(escape(String.join(" / ", parts)));
+            }
+            sb.append("</div></div>");
+        }
+    }
+
     private void appendPolymarketSignals(StringBuilder sb, PolymarketSignalReport report, Diagnostics diagnostics) {
         sb.append("<h2>F. Polymarket Signals</h2>");
         FeatureResolution polymarketFeature = diagnostics == null ? null : diagnostics.feature("polymarket");
@@ -693,6 +897,18 @@ public final class ReportBuilder {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
+    private void appendConfigOverviewCollapsed(StringBuilder sb, Diagnostics diagnostics) {
+        sb.append("<details><summary class='small'>高级：参数总览（点开）</summary>");
+        appendConfigOverview(sb, diagnostics);
+        sb.append("</details>");
+    }
+
+    private void appendDiagnosticsCollapsed(StringBuilder sb, Diagnostics diagnostics) {
+        sb.append("<details><summary class='small'>高级：Diagnostics（点开）</summary>");
+        appendDiagnostics(sb, diagnostics);
+        sb.append("</details>");
+    }
+
     private void appendConfigOverview(StringBuilder sb, Diagnostics diagnostics) {
         sb.append("<h2>H. 参数总览（本次运行）</h2>");
         if (diagnostics == null || diagnostics.configSnapshot.isEmpty()) {
@@ -1021,6 +1237,22 @@ public final class ReportBuilder {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
+    private String renderFeatureStatusV2(String featureKey, FeatureResolution feature, ScanResultSummary summary) {
+        if (feature == null || feature.status != FeatureStatus.ENABLED) {
+            return "该模块未开启（不影响买卖信号，只是少了统计/解释）";
+        }
+        int shortCount = summary == null ? 0 : summary.insufficientCount(DataInsufficientReason.HISTORY_SHORT);
+        if (shortCount > 0) {
+            return "行情/指标缺失：今日仅观察，不交易";
+        }
+        double winRate = config.getDouble("report.metrics.top5_perf.win_rate_30d", Double.NaN);
+        double drawdown = config.getDouble("report.metrics.top5_perf.max_drawdown_30d", Double.NaN);
+        if (Double.isFinite(winRate) || Double.isFinite(drawdown)) {
+            return "近30天胜率 " + fmt1(winRate) + "% | 最大回撤 " + fmt1(drawdown) + "%";
+        }
+        return "已启用";
+    }
+
     private String renderFeatureStatus(String featureKey, FeatureResolution feature, ScanResultSummary summary) {
         if (feature == null) {
             return "<b>未启用</b>";
@@ -1385,6 +1617,124 @@ public final class ReportBuilder {
             out.add(line);
         }
         return out;
+    }
+
+    private WatchDecision decideForWatchAction(WatchlistAnalysis w, boolean isClose) {
+        if (w == null) {
+            return new WatchDecision("WAIT", "无数据", "", null);
+        }
+        Outcome<TradePlan> outcome = tradePlanBuilder.buildForWatchlist(w);
+        TradePlan plan = outcome != null && outcome.value != null ? outcome.value : TradePlan.invalid();
+        String invalidPlanReason = plan.valid ? "" : ("计划无效：" + (outcome == null || outcome.causeCode == null ? CauseCode.PLAN_INVALID.name() : outcome.causeCode.name()));
+
+        String status = blankTo(w.technicalStatus, "").toUpperCase(Locale.ROOT);
+        if ("NO_MARKET_DATA".equals(status) || w.barsCount <= 0 || !w.fetchSuccess) {
+            return new WatchDecision("WAIT", "行情缺失（不交易）", "", plan);
+        }
+        if (!(Double.isFinite(w.lastClose) && w.lastClose > 0.0)) {
+            return new WatchDecision("WAIT", "价格无效（不交易）", "", plan);
+        }
+        if (isClose && plan.valid && w.lastClose <= plan.stopLoss) {
+            return new WatchDecision("SELL", "跌破止损", invalidPlanReason, plan);
+        }
+
+        RiskAssessment risk = assessRisk(parseIndicators(w.technicalIndicatorsJson, w.lastClose));
+        boolean highRisk = risk.grade == RiskGrade.HIGH || "HIGH".equalsIgnoreCase(blankTo(w.risk, ""));
+        if (highRisk && w.technicalScore < 65.0) {
+            return new WatchDecision("REDUCE", "风险高且评分走弱", invalidPlanReason, plan);
+        }
+        if ("CANDIDATE".equalsIgnoreCase(blankTo(w.technicalStatus, "")) && w.technicalScore >= 80.0) {
+            return new WatchDecision("BUY", highRisk ? "强信号但高风险：仅小仓≤3%" : "强信号：允许小仓≤5%", invalidPlanReason, plan);
+        }
+        if (w.technicalScore >= 65.0) {
+            return new WatchDecision("HOLD", "评分尚可：持有观察", "", plan);
+        }
+        return new WatchDecision("WAIT", "信号不足：观望", "", plan);
+    }
+
+    private WatchDecisionRow pickBestWatchDecision(List<WatchlistAnalysis> watchRows, boolean isClose) {
+        if (watchRows == null || watchRows.isEmpty()) {
+            return null;
+        }
+        WatchDecisionRow best = null;
+        for (WatchlistAnalysis row : watchRows) {
+            WatchDecision decision = decideForWatchAction(row, isClose);
+            if ("WAIT".equals(decision.action)) {
+                continue;
+            }
+            WatchDecisionRow current = new WatchDecisionRow(row, decision);
+            if (best == null
+                    || watchActionPriority(current.decision.action) > watchActionPriority(best.decision.action)
+                    || (watchActionPriority(current.decision.action) == watchActionPriority(best.decision.action)
+                    && (row == null ? 0.0 : row.technicalScore) > (best.row == null ? 0.0 : best.row.technicalScore))) {
+                best = current;
+            }
+        }
+        return best;
+    }
+
+    private int watchActionPriority(String action) {
+        String a = blankTo(action, "WAIT").toUpperCase(Locale.ROOT);
+        if ("SELL".equals(a)) return 6;
+        if ("REDUCE".equals(a)) return 5;
+        if ("BUY".equals(a)) return 4;
+        if ("ADD".equals(a)) return 3;
+        if ("HOLD".equals(a)) return 2;
+        return 1;
+    }
+
+    private String watchActionCss(String action) {
+        String a = blankTo(action, "WAIT").toUpperCase(Locale.ROOT);
+        if ("SELL".equals(a) || "REDUCE".equals(a)) return "bad";
+        if ("BUY".equals(a) || "ADD".equals(a)) return "good";
+        if ("HOLD".equals(a)) return "info";
+        return "gray";
+    }
+
+    private String noviceConclusion(double indicatorCoveragePct) {
+        if (indicatorCoveragePct < 50.0) return "不建议交易（仅观察）";
+        if (indicatorCoveragePct < 80.0) return "允许小仓试单（单票≤3%）";
+        return "允许正常仓位（单票≤5%）";
+    }
+
+    private boolean containsRiskTag(List<String> tags, String target) {
+        if (tags == null || tags.isEmpty()) {
+            return false;
+        }
+        for (String tag : tags) {
+            if (blankTo(tag, "").equalsIgnoreCase(blankTo(target, ""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String plainCode(WatchlistAnalysis row) {
+        if (row == null) return "";
+        String code = blankTo(row.code, "").toUpperCase(Locale.ROOT);
+        return code.isEmpty() ? blankTo(row.ticker, "").toUpperCase(Locale.ROOT) : code;
+    }
+
+    private String plainName(WatchlistAnalysis row) {
+        if (row == null) return "";
+        return blankTo(row.companyNameLocal, blankTo(row.displayName, ""));
+    }
+
+    private String safeText(String value) {
+        return safe(value).replace("\r", " ").replace("\n", " ").trim();
+    }
+
+    private ActionAdvice actionAdviceV2(double fetchCoveragePct, double indicatorCoveragePct, int candidateCount, List<CandidateCard> cards) {
+        if (indicatorCoveragePct < 50.0 || fetchCoveragePct < 50.0) {
+            return new ActionAdvice("仅观察", "bad", "行情/指标缺失：今日仅观察，不交易");
+        }
+        if (indicatorCoveragePct < 80.0) {
+            return new ActionAdvice("小仓试单", "warn", "覆盖率一般，建议只做小仓位并严格止损");
+        }
+        if (candidateCount <= 1) {
+            return new ActionAdvice("仅观察", "gray", "有效信号太少，今天不建议开新仓");
+        }
+        return new ActionAdvice("可执行", "good", "覆盖率正常，可参考计划执行");
     }
 
     private ActionAdvice actionAdvice(double fetchCoveragePct, double indicatorCoveragePct, int candidateCount, List<CandidateCard> cards) {
@@ -1773,6 +2123,30 @@ public final class ReportBuilder {
     private String escape(String text) {
         if (text == null) return "";
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static final class WatchDecision {
+        final String action;
+        final String reason1;
+        final String reason2;
+        final TradePlan plan;
+
+        private WatchDecision(String action, String reason1, String reason2, TradePlan plan) {
+            this.action = action == null || action.trim().isEmpty() ? "WAIT" : action.trim().toUpperCase(Locale.ROOT);
+            this.reason1 = reason1 == null ? "" : reason1;
+            this.reason2 = reason2 == null ? "" : reason2;
+            this.plan = plan;
+        }
+    }
+
+    private static final class WatchDecisionRow {
+        final WatchlistAnalysis row;
+        final WatchDecision decision;
+
+        private WatchDecisionRow(WatchlistAnalysis row, WatchDecision decision) {
+            this.row = row;
+            this.decision = decision;
+        }
     }
 
     private static final class DisplayReason {

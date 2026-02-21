@@ -38,6 +38,8 @@
 2. 工作目录 `config.properties`（本地覆盖）
 3. `Config.DEFAULTS`（键缺失或空值时兜底）
 
+本地运行请在工作目录放置 `config.properties` 覆盖资源配置；该文件不提交 Git。
+
 当前仓库根目录 `config.properties` 为空覆盖文件，实际主要由 resources 配置生效。
 
 ### 2.3 mode 与 schedule 判定
@@ -500,18 +502,20 @@ PowerShell 一行（常用）：
 
 改了 Java 代码后（需要重建）：
 
-- `docker compose run --rm --build --no-deps app --help`
-- `docker compose run --rm --build --no-deps app --test`
-- `docker compose run --rm --build --no-deps app --reset-batch`
-- `docker compose run --rm --build --no-deps app --migrate-sqlite-to-postgres --sqlite-path outputs/stockbot.db`
+- `docker compose run --rm --build app --help`
+- `docker compose run --rm --build app --test`
+- `docker compose run --rm --build app --reset-batch`
+- `docker compose run --rm --build app --migrate-sqlite-to-postgres --sqlite-path outputs/stockbot.db`
 
 只改 `watchlist.txt` / `config.properties`（无需重建）：
 
-- `docker compose run --rm --no-deps app --help`
-- `docker compose run --rm --no-deps app --test`
-- `docker compose run --rm --no-deps app --reset-batch`
-- `docker compose run --rm --no-deps app --migrate-sqlite-to-postgres --sqlite-path outputs/stockbot.db`
+- `docker compose run --rm  app --help`
+- `docker compose run --rm  app --test`
+- `docker compose run --rm ps app --reset-batch`
+- `docker compose run --rm app --migrate-sqlite-to-postgres --sqlite-path outputs/stockbot.db`
 
 ---
 
 如后续改动入口分发、分段恢复、Top5 选择、邮件附件处理或 DB 表结构，建议优先同步本文件第 2/5/9/10/11/14 节。
+
+本地运行请在工作目录放置 `config.properties` 覆盖资源配置；该文件不提交 Git。
