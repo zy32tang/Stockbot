@@ -799,13 +799,27 @@ public final class ReportBuilder {
         sb.append("<h2>F. Polymarket Signals</h2>");
         FeatureResolution feature = diagnostics == null ? null : diagnostics.feature("polymarket");
         if ((feature != null && feature.status != FeatureStatus.ENABLED) || report == null || !report.enabled) {
-            sb.append("<div class='warnbox'>该模块未开启（不影响买卖信号，只是少了统计/解释）</div>");
+            String disabledReason = report == null ? "" : safe(report.statusMessage);
+            if (disabledReason.isEmpty() && feature != null) {
+                disabledReason = renderFeatureStatusSimple("polymarket.enabled", feature);
+            }
+            sb.append("<div class='warnbox'>")
+                    .append(escape(blankTo(disabledReason, "Polymarket disabled")))
+                    .append("</div>");
             return;
         }
         if (report.signals.isEmpty()) {
-            sb.append("<div class='warnbox'>行情/指标缺失：今日仅观察，不交易</div>");
+            sb.append("<div class='warnbox'>")
+                    .append(escape(blankTo(report.statusMessage, "No polymarket matches")))
+                    .append("</div>");
             return;
         }
+        if (!safe(report.statusMessage).isEmpty()) {
+            sb.append("<div class='small'>status: ")
+                    .append(escape(report.statusMessage))
+                    .append("</div>");
+        }
+
         for (PolymarketTopicSignal signal : report.signals) {
             sb.append("<div class='card'><div class='small'><b>Topic: ").append(escape(signal.topic))
                     .append(" | Prob: ").append(fmt1(signal.impliedProbabilityPct)).append("%")
@@ -817,7 +831,7 @@ public final class ReportBuilder {
                     .append("</div>");
             sb.append("<div class='small'>Watchlist impact: ");
             if (signal.watchImpacts == null || signal.watchImpacts.isEmpty()) {
-                sb.append("暂无明显影响");
+                sb.append("none");
             } else {
                 List<String> parts = new ArrayList<>();
                 for (PolymarketWatchImpact impact : signal.watchImpacts) {

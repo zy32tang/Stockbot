@@ -23,7 +23,9 @@ import com.stockbot.jp.db.MetadataDao;
 import com.stockbot.jp.db.RunDao;
 import com.stockbot.jp.db.ScanResultDao;
 import com.stockbot.jp.db.UniverseDao;
+import com.stockbot.jp.data.TickerNameResolver;
 import com.stockbot.jp.indicator.IndicatorEngine;
+import com.stockbot.jp.indicator.IndicatorCoverageResult;
 import com.stockbot.jp.model.BarDaily;
 import com.stockbot.jp.model.DataInsufficientReason;
 import com.stockbot.jp.model.DailyRunOutcome;
@@ -48,6 +50,7 @@ import com.stockbot.jp.strategy.RiskFilter;
 import com.stockbot.jp.strategy.ScoringEngine;
 import com.stockbot.jp.universe.JpxUniverseUpdater;
 import com.stockbot.jp.vector.EventMemoryService;
+import com.stockbot.jp.vector.VectorSearchService;
 import com.stockbot.jp.watch.TickerResolver;
 import com.stockbot.jp.watch.TickerSpec;
 import com.stockbot.utils.TextFormatter;
@@ -73,6 +76,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
@@ -112,7 +116,9 @@ public final class DailyRunner {
             "backtest.hold_days",
             "report.top5.skip_on_partial",
             "report.top5.min_fetch_coverage_pct",
+            "report.top5.min_indicator_coverage_pct",
             "report.top5.allow_partial_when_coverage_ge",
+            "report.coverage.use_tradable_denominator",
             "report.metrics.top5_perf.enabled",
             "report.metrics.top5_perf.win_rate_30d",
             "report.metrics.top5_perf.max_drawdown_30d",
@@ -159,7 +165,36 @@ public final class DailyRunner {
             "vector.memory.news.top_k",
             "vector.memory.news.max_cases",
             "vector.memory.signal.top_k",
-            "vector.memory.signal.max_cases"
+            "vector.memory.signal.max_cases",
+            "fetch.bars.market",
+            "fetch.bars.watchlist",
+            "fetch.retry.max",
+            "fetch.retry.backoff_ms",
+            "fetch.concurrent",
+            "news.concurrent",
+            "news.query.max_variants",
+            "news.query.max_results_per_variant",
+            "news.source.google_rss",
+            "news.source.bing",
+            "news.source.yahoo_finance",
+            "ai.enabled",
+            "ai.watchlist.mode",
+            "ai.timeout_sec",
+            "ai.max_tokens",
+            "ai.temperature",
+            "vector.memory.signal.max_cases",
+            "polymarket.vector.top_k",
+            "polymarket.vector.min_similarity",
+            "polymarket.refresh.max_markets",
+            "polymarket.refresh.ttl_hours",
+            "polymarket.weights.sim",
+            "polymarket.weights.recency",
+            "polymarket.weights.liquidity",
+            "polymarket.weights.confidence",
+            "indicator.core",
+            "indicator.allow_partial",
+            "mail.dry_run",
+            "mail.fail_fast"
     );
 
     private enum NonJpHandling {
@@ -190,8 +225,15 @@ public final class DailyRunner {
     private final PolymarketService polymarketService;
     private final EventMemoryService eventMemoryService;
     private final TickerResolver tickerResolver;
+    private final TickerNameResolver tickerNameResolver;
     private final NonJpHandling nonJpHandling;
+    private final List<String> indicatorCoreFields;
+    private final boolean indicatorAllowPartial;
     private final int watchlistMaxAiChars;
+    private final int fetchBarsMarket;
+    private final int fetchBarsWatchlist;
+    private final int fetchRetryMax;
+    private final int fetchRetryBackoffMs;
     private final int maxBars;
     private static final DateTimeFormatter NEWS_TS_FMT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
 
@@ -232,12 +274,15 @@ public DailyRunner(
         this.industryService = new IndustryService(legacyHttp);
         String newsLang = config.getString("watchlist.news.lang", "ja");
         String newsRegion = config.getString("watchlist.news.region", "JP");
-        int newsMaxItems = Math.max(1, config.getInt("watchlist.news.max_items", 12));
-        String newsSources = config.getString(
-                "watchlist.news.sources",
-                "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews,investing,ft,guardian,seekingalpha"
-        );
-        int queryVariants = Math.max(1, config.getInt("watchlist.news.query_variants", 4));
+        int newsMaxItems = Math.max(1, config.getInt(
+                "watchlist.news.max_items",
+                config.getInt("news.query.max_results_per_variant", 12)
+        ));
+        String newsSources = buildNewsSourcesConfig();
+        int queryVariants = Math.max(1, config.getInt(
+                "news.query.max_variants",
+                config.getInt("watchlist.news.query_variants", 4)
+        ));
         this.newsService = new NewsService(legacyHttp, newsLang, newsRegion, newsMaxItems, newsSources, queryVariants);
         this.factorEngine = new FactorEngine(
                 new com.stockbot.data.FundamentalsService(legacyHttp),
@@ -252,17 +297,25 @@ public DailyRunner(
         );
         this.ollamaClient = new OllamaClient(
                 legacyHttp,
-                config.getString("watchlist.ai.base_url", "http://127.0.0.1:11434"),
+                config.getString("watchlist.ai.base_url", config.getString("ai.base_url", "http://127.0.0.1:11434")),
                 config.getString("watchlist.ai.model", "llama3.1:latest"),
-                Math.max(5, config.getInt("watchlist.ai.timeout_sec", 180)),
-                Math.max(0, config.getInt("watchlist.ai.max_tokens", 80))
+                Math.max(5, config.getInt("ai.timeout_sec", config.getInt("watchlist.ai.timeout_sec", 180))),
+                Math.max(0, config.getInt("ai.max_tokens", config.getInt("watchlist.ai.max_tokens", 80)))
         );
-        this.polymarketService = new PolymarketService(config, legacyHttp, ollamaClient);
         this.eventMemoryService = eventMemoryService;
+        VectorSearchService vectorSearchService = eventMemoryService == null ? null : eventMemoryService.vectorSearchService();
+        this.polymarketService = new PolymarketService(config, legacyHttp, ollamaClient, vectorSearchService);
         this.tickerResolver = new TickerResolver(config.getString("watchlist.default_market_for_alpha", "US"));
+        this.tickerNameResolver = new TickerNameResolver(config, legacyHttp);
         this.nonJpHandling = parseNonJpHandling(config.getString("watchlist.non_jp_handling", "PROCESS_SEPARATELY"));
+        this.indicatorCoreFields = parseIndicatorCoreFields(config.getString("indicator.core", "sma20,sma60,rsi14,atr14"));
+        this.indicatorAllowPartial = config.getBoolean("indicator.allow_partial", true);
         this.watchlistMaxAiChars = Math.max(120, config.getInt("watchlist.ai.max_chars", 900));
-        this.maxBars = Math.max(60, config.getInt("yahoo.max_bars_per_ticker", 420));
+        this.fetchBarsMarket = Math.max(120, config.getInt("fetch.bars.market", config.getInt("fetch.bars", 520)));
+        this.fetchBarsWatchlist = Math.max(120, config.getInt("fetch.bars.watchlist", config.getInt("fetch.bars", 520)));
+        this.fetchRetryMax = Math.max(0, config.getInt("fetch.retry.max", 2));
+        this.fetchRetryBackoffMs = Math.max(50, config.getInt("fetch.retry.backoff_ms", 400));
+        this.maxBars = Math.max(60, Math.max(config.getInt("yahoo.max_bars_per_ticker", 420), Math.max(fetchBarsMarket, fetchBarsWatchlist)));
     }
 
 public DailyRunOutcome run(boolean forceUniverseUpdate, Integer topNOverride) throws Exception {
@@ -687,6 +740,14 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
         if (watchItems.isEmpty()) {
             return List.of();
         }
+        boolean aiEnabled = config.getBoolean("ai.enabled", true);
+        boolean aiAllMode = "ALL".equalsIgnoreCase(config.getString("ai.watchlist.mode", "AUTO"));
+        if (aiEnabled) {
+            int targetCount = aiAllMode ? watchItems.size() : watchItems.size();
+            System.out.println(String.format(Locale.US, "AI_TARGETS=%d mode=%s", targetCount, aiAllMode ? "ALL" : "GATED"));
+        } else {
+            System.out.println("AI_TARGETS=0 mode=DISABLED");
+        }
 
         double minScore = config.getDouble("scan.min_score", 55.0);
         Map<String, UniverseRecord> byCode = new HashMap<>();
@@ -741,12 +802,15 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                 PriceFetchTrace priceTrace = fetchWatchPriceTrace(record.ticker, yahooTicker);
                 logPriceTrace(record.ticker, priceTrace);
 
-                LegacyWatchResult legacy = buildLegacyWatchResult(record, watchItem, yahooTicker, priceTrace);
+                LegacyWatchResult legacy = buildLegacyWatchResult(record, watchItem, yahooTicker, priceTrace, aiEnabled, aiAllMode);
                 WatchlistScanResult technical = scanWatchRecord(record, watchItem, priceTrace);
-                String industryEn = blankTo(industryService.industryOf(yahooTicker), "Unknown");
-                String industryZh = blankTo(industryService.industryZhOf(yahooTicker), "Unknown");
-                String companyLocal = resolveCompanyLocalName(record, yahooTicker);
-                String displayName = buildDisplayName(companyLocal, record.code, industryZh, industryEn);
+                TickerNameResolver.ResolvedTickerName resolvedName =
+                        tickerNameResolver.resolve(tickerSpec.normalized, tickerSpec.market.name());
+                String industryEn = normalizeUnknownText(industryService.industryOf(yahooTicker), "-");
+                String industryZh = normalizeUnknownText(industryService.industryZhOf(yahooTicker), "-");
+                String displayCode = blankTo(resolvedName.displayCode, safeText(record.code).toUpperCase(Locale.ROOT));
+                String companyLocal = blankTo(resolvedName.displayNameLocal, resolveCompanyLocalName(record, yahooTicker));
+                String displayName = buildDisplayName(displayCode, companyLocal);
                 String technicalStatus = toWatchStatus(technical, minScore);
                 EventMemoryService.MemoryInsights memoryInsights = collectMemoryInsights(
                         watchItem,
@@ -782,7 +846,7 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
 
                 row = new WatchlistAnalysis(
                         watchItem,
-                        safeText(record.code),
+                        displayCode,
                         safeText(record.ticker),
                         displayName,
                         companyLocal,
@@ -826,7 +890,7 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
             out.add(row);
             System.out.println(String.format(
                     Locale.US,
-                    "Watchlist %d/%d item=%s ticker=%s score=%.2f rating=%s risk=%s pct=%.2f%% ai=%s gate=%s ai_text=%s news=%d tech=%.2f tech_status=%s source=%s date=%s bars=%d latency=%dms",
+                    "Watchlist %d/%d item=%s ticker=%s score=%.2f rating=%s risk=%s pct=%.2f%% ai=%s gate=%s ai_text=%s news=%d tech=%.2f tech_status=%s source=%s date=%s bars=%d latency=%dms err=%s",
                     i + 1,
                     watchItems.size(),
                     watchItem,
@@ -844,7 +908,8 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                     row.dataSource,
                     row.priceTimestamp,
                     row.barsCount,
-                    row.fetchLatencyMs
+                    row.fetchLatencyMs,
+                    trimChars(safeText(row.error), 120)
             ));
         }
 
@@ -944,21 +1009,17 @@ private WatchlistAnalysis buildSkippedWatchRow(
         diag.put("fetch_trace", fetchTrace);
 
         String code = extractCode(watchItem);
-        String display = buildDisplayName(
-                safeText(watchItem).toUpperCase(Locale.ROOT),
-                code,
-                "Unknown",
-                "Unknown"
-        );
+        String normalizedCode = code.isEmpty() ? safeText(watchItem).toUpperCase(Locale.ROOT) : code;
+        String display = buildDisplayName(normalizedCode, normalizedCode);
 
         return new WatchlistAnalysis(
                 watchItem,
                 code,
                 safeText(tickerSpec == null ? "" : tickerSpec.normalized),
                 display,
-                safeText(watchItem).toUpperCase(Locale.ROOT),
-                "Unknown",
-                "Unknown",
+                normalizedCode,
+                "-",
+                "-",
                 tickerSpec == null || tickerSpec.market == null ? "UNKNOWN" : tickerSpec.market.name(),
                 tickerSpec == null || tickerSpec.resolveStatus == null
                         ? TickerSpec.ResolveStatus.INVALID.name()
@@ -1113,6 +1174,35 @@ private String toJpTicker(String normalizedTicker) {
                         false
                 );
             }
+            IndicatorCoverageResult coverage = evaluateIndicatorCoverage(ind);
+            if (!coverage.coreReady()) {
+                return failedWatchRecord(
+                        record,
+                        watchItem,
+                        "missing_core_indicators:" + String.join(",", coverage.missingCoreIndicators),
+                        CauseCode.INDICATOR_ERROR,
+                        Map.of(
+                                "missing_core_indicators", coverage.missingCoreIndicators,
+                                "missing_optional_indicators", coverage.missingOptionalIndicators
+                        ),
+                        true,
+                        false
+                );
+            }
+            if (!indicatorAllowPartial && !coverage.missingOptionalIndicators.isEmpty()) {
+                return failedWatchRecord(
+                        record,
+                        watchItem,
+                        "missing_optional_indicators:" + String.join(",", coverage.missingOptionalIndicators),
+                        CauseCode.INDICATOR_ERROR,
+                        Map.of(
+                                "missing_core_indicators", coverage.missingCoreIndicators,
+                                "missing_optional_indicators", coverage.missingOptionalIndicators
+                        ),
+                        true,
+                        false
+                );
+            }
 
             FilterDecision filter = candidateFilter.evaluate(bars, ind);
             RiskDecision risk = riskFilter.evaluate(ind);
@@ -1162,16 +1252,17 @@ private String toJpTicker(String normalizedTicker) {
 private PriceFetchTrace fetchWatchPriceTrace(String jpTicker, String yahooTicker) {
         long started = System.nanoTime();
 
-        List<BarDaily> fromYahoo = fetchBarsFromYahoo(jpTicker, yahooTicker);
+        YahooFetchResult yahoo = fetchBarsFromYahoo(jpTicker, yahooTicker, fetchBarsWatchlist, "watchlist");
+        List<BarDaily> fromYahoo = yahoo.bars;
         if (!fromYahoo.isEmpty()) {
             return PriceFetchTrace.fromBars(
                     fromYahoo,
                     "yahoo",
                     false,
                     nanosToMillis(System.nanoTime() - started),
-                    false,
-                    "",
-                    "",
+                    yahoo.requestFailed,
+                    yahoo.requestFailureCategory,
+                    yahoo.error,
                     "yahoo"
             );
         }
@@ -1184,8 +1275,8 @@ private PriceFetchTrace fetchWatchPriceTrace(String jpTicker, String yahooTicker
                     true,
                     nanosToMillis(System.nanoTime() - started),
                     true,
-                    "no_data",
-                    "no_data",
+                    safeText(yahoo.requestFailureCategory).isEmpty() ? "no_data" : yahoo.requestFailureCategory,
+                    safeText(yahoo.error).isEmpty() ? "fetch_failed" : yahoo.error,
                     "yahoo->cache"
             );
         }
@@ -1194,8 +1285,8 @@ private PriceFetchTrace fetchWatchPriceTrace(String jpTicker, String yahooTicker
                 "fetch_failed",
                 nanosToMillis(System.nanoTime() - started),
                 true,
-                "no_data",
-                "no_data",
+                safeText(yahoo.requestFailureCategory).isEmpty() ? "no_data" : yahoo.requestFailureCategory,
+                safeText(yahoo.error).isEmpty() ? "fetch_failed" : yahoo.error,
                 "yahoo->cache->failed"
         );
     }
@@ -1203,13 +1294,13 @@ private PriceFetchTrace fetchWatchPriceTrace(String jpTicker, String yahooTicker
 private void logPriceTrace(String ticker, PriceFetchTrace trace) {
         if (trace == null) {
             System.out.println(String.format(Locale.US,
-                    "[PRICE] ticker=%s source=fetch_failed tradeDate= lastClose=NaN bars=0 latency=0ms cache_hit=false",
+                    "[PRICE] ticker=%s source=fetch_failed tradeDate= lastClose=NaN bars=0 latency=0ms cache_hit=false reason=unknown",
                     safeText(ticker)));
             return;
         }
         System.out.println(String.format(
                 Locale.US,
-                "[PRICE] ticker=%s source=%s tradeDate=%s lastClose=%.4f bars=%d latency=%dms cache_hit=%s fallback=%s",
+                "[PRICE] ticker=%s source=%s tradeDate=%s lastClose=%.4f bars=%d latency=%dms cache_hit=%s fallback=%s req_cat=%s req_err=%s",
                 safeText(ticker),
                 safeText(trace.dataSource),
                 safeText(trace.priceTimestamp),
@@ -1217,20 +1308,66 @@ private void logPriceTrace(String ticker, PriceFetchTrace trace) {
                 trace.barsCount,
                 trace.fetchLatencyMs,
                 trace.cacheHit,
-                safeText(trace.fallbackPath)
+                safeText(trace.fallbackPath),
+                safeText(trace.requestFailureCategory),
+                safeText(trace.error)
         ));
     }
 
-private List<BarDaily> fetchBarsFromYahoo(String jpTicker, String yahooTicker) {
+private YahooFetchResult fetchBarsFromYahoo(String jpTicker, String yahooTicker, int targetBars, String fetchScope) {
         if (yahooTicker == null || yahooTicker.trim().isEmpty()) {
-            return List.of();
+            return YahooFetchResult.empty("no_data", "empty_symbol");
         }
-        try {
-            List<MarketDataService.DailyBar> history = marketDataService.fetchDailyHistoryBars(yahooTicker, "2y", "1d");
-            return toBarsFromYahoo(jpTicker, history);
-        } catch (Exception ignored) {
-            return List.of();
+        String normalizedYahooTicker = normalizeYahooTickerSymbol(yahooTicker);
+        int maxRetry = Math.max(0, fetchRetryMax);
+        int desiredBars = Math.max(120, targetBars);
+        String[] ranges = desiredBars >= 500 ? new String[] {"5y", "max"} : new String[] {"2y", "5y"};
+        String requestFailureCategory = "";
+        String requestError = "";
+
+        for (String range : ranges) {
+            for (int attempt = 0; attempt <= maxRetry; attempt++) {
+                try {
+                    List<MarketDataService.DailyBar> history = marketDataService.fetchDailyHistoryBars(normalizedYahooTicker, range, "1d");
+                    List<BarDaily> bars = toBarsFromYahoo(jpTicker, history);
+                    if (bars.isEmpty()) {
+                        requestFailureCategory = "no_data";
+                        requestError = "no_data";
+                    } else {
+                        if (bars.size() > desiredBars) {
+                            bars = new ArrayList<>(bars.subList(bars.size() - desiredBars, bars.size()));
+                        }
+                        return new YahooFetchResult(bars, false, "", "");
+                    }
+                } catch (Exception e) {
+                    String rawCategory = normalizeRequestFailureCategory("", e.getMessage());
+                    requestFailureCategory = safeText(rawCategory).isEmpty() ? "fetch_failed" : rawCategory;
+                    requestError = safeText(e.getMessage());
+                    boolean canRetry = attempt < maxRetry
+                            && ("timeout".equals(requestFailureCategory)
+                            || "rate_limit".equals(requestFailureCategory)
+                            || "other".equals(requestFailureCategory)
+                            || "fetch_failed".equals(requestFailureCategory));
+                    if (!canRetry) {
+                        break;
+                    }
+                    long waitMs = (long) fetchRetryBackoffMs * (1L << attempt);
+                    try {
+                        Thread.sleep(Math.max(50L, waitMs));
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return YahooFetchResult.empty(requestFailureCategory, "interrupted");
+                    }
+                }
+            }
         }
+        if (requestFailureCategory.isEmpty()) {
+            requestFailureCategory = "no_data";
+        }
+        if (requestError.isEmpty()) {
+            requestError = "fetch_failed:" + safeText(fetchScope);
+        }
+        return YahooFetchResult.empty(requestFailureCategory, requestError);
     }
 
 private WatchlistScanResult failedWatchRecord(
@@ -1446,11 +1583,94 @@ private JSONObject safeJsonObject(String raw) {
         }
     }
 
+    private List<String> parseIndicatorCoreFields(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return List.of("sma20", "sma60", "rsi14", "atr14");
+        }
+        Set<String> out = new TreeSet<>();
+        String[] tokens = raw.split("[,;]");
+        for (String token : tokens) {
+            String t = safeText(token).toLowerCase(Locale.ROOT);
+            if (!t.isEmpty()) {
+                out.add(t);
+            }
+        }
+        if (out.isEmpty()) {
+            return List.of("sma20", "sma60", "rsi14", "atr14");
+        }
+        return new ArrayList<>(out);
+    }
+
+    private IndicatorCoverageResult evaluateIndicatorCoverage(IndicatorSnapshot ind) {
+        if (ind == null) {
+            return new IndicatorCoverageResult(List.of("indicator_snapshot"), List.of());
+        }
+        List<String> missingCore = new ArrayList<>();
+        List<String> missingOptional = new ArrayList<>();
+
+        for (String core : indicatorCoreFields) {
+            if (!isIndicatorPresent(ind, core)) {
+                missingCore.add(core);
+            }
+        }
+
+        String[] optional = new String[] {
+                "sma120", "drawdown120_pct", "volatility20_pct", "volume_ratio20", "return3d_pct", "return5d_pct", "return10d_pct"
+        };
+        for (String item : optional) {
+            if (!isIndicatorPresent(ind, item)) {
+                missingOptional.add(item);
+            }
+        }
+        return new IndicatorCoverageResult(missingCore, missingOptional);
+    }
+
+    private boolean isIndicatorPresent(IndicatorSnapshot ind, String indicatorName) {
+        if (ind == null) {
+            return false;
+        }
+        String name = safeText(indicatorName).toLowerCase(Locale.ROOT);
+        switch (name) {
+            case "last_close":
+                return Double.isFinite(ind.lastClose) && ind.lastClose > 0.0;
+            case "sma20":
+                return Double.isFinite(ind.sma20) && ind.sma20 > 0.0;
+            case "sma60":
+                return Double.isFinite(ind.sma60) && ind.sma60 > 0.0;
+            case "sma120":
+                return Double.isFinite(ind.sma120) && ind.sma120 > 0.0;
+            case "rsi14":
+                return Double.isFinite(ind.rsi14) && ind.rsi14 >= 0.0 && ind.rsi14 <= 100.0;
+            case "atr14":
+                return Double.isFinite(ind.atr14) && ind.atr14 >= 0.0;
+            case "atr_pct":
+                return Double.isFinite(ind.atrPct) && ind.atrPct >= 0.0;
+            case "avg_volume20":
+                return Double.isFinite(ind.avgVolume20) && ind.avgVolume20 >= 0.0;
+            case "volume_ratio20":
+                return Double.isFinite(ind.volumeRatio20) && ind.volumeRatio20 >= 0.0;
+            case "drawdown120_pct":
+                return Double.isFinite(ind.drawdown120Pct);
+            case "volatility20_pct":
+                return Double.isFinite(ind.volatility20Pct) && ind.volatility20Pct >= 0.0;
+            case "return3d_pct":
+                return Double.isFinite(ind.return3dPct);
+            case "return5d_pct":
+                return Double.isFinite(ind.return5dPct);
+            case "return10d_pct":
+                return Double.isFinite(ind.return10dPct);
+            default:
+                return true;
+        }
+    }
+
 private LegacyWatchResult buildLegacyWatchResult(
             UniverseRecord record,
             String watchItem,
             String yahooTicker,
-            PriceFetchTrace priceTrace
+            PriceFetchTrace priceTrace,
+            boolean aiEnabled,
+            boolean aiAllMode
     ) {
         StockContext sc = new StockContext(yahooTicker);
         String error = "";
@@ -1476,7 +1696,7 @@ private LegacyWatchResult buildLegacyWatchResult(
 
             factorEngine.computeFactors(sc);
             legacyScoringEngine.score(sc);
-            aiTriggered = gatePolicy.shouldRunAi(sc);
+            aiTriggered = aiEnabled && (aiAllMode || gatePolicy.shouldRunAi(sc));
             if (aiTriggered) {
                 sc.aiRan = true;
                 String rawSummary = ollamaClient.summarize(Prompts.buildPrompt(sc));
@@ -1486,8 +1706,20 @@ private LegacyWatchResult buildLegacyWatchResult(
                 sc.aiSummary = "";
             }
         } catch (Exception e) {
-            error = e.getMessage() == null ? "legacy_failed" : e.getMessage();
-            sc.aiSummary = "";
+            String msg = safeText(e.getMessage());
+            if (msg.isEmpty()) {
+                msg = "legacy_failed";
+            }
+            error = e.getClass().getSimpleName() + ": " + msg;
+            sc.gateReason = "legacy_error";
+            sc.aiSummary = "AI skipped: legacy pipeline failed (" + error + ")";
+            System.err.println(String.format(
+                    Locale.US,
+                    "WARN: legacy watch pipeline failed watch_item=%s ticker=%s reason=%s",
+                    safeText(watchItem),
+                    safeText(yahooTicker),
+                    error
+            ));
         }
         return new LegacyWatchResult(sc, aiTriggered, error);
     }
@@ -1569,7 +1801,7 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
 
         List<String> topics = parseTopicCsv(config.getString(
                 "watchlist.news.query_topics",
-                "株価,決算,業績,見通し,受注,設備投資,提携,規制,為替,金利,guidance,earnings,outlook,supply chain"
+                "隴ｬ・ｪ關難ｽ｡,雎趣ｽｺ驍ゅ・隶鯉ｽｭ驍ｵ・ｾ,髫慕洸ﾂ螢ｹ・,陷ｿ邇ｲ・ｳ・ｨ,髫ｪ・ｭ陋ｯ蜻主・髮峨・隰蜈亥｣ｰ,髫穂ｸ槫ｮ・霓､・ｺ隴厄ｽｿ,鬩･螟ｧ闌・guidance,earnings,outlook,supply chain"
         ));
         String anchor = company.isEmpty() ? (recordName.isEmpty() ? watchToken : recordName) : company;
         if (anchor.isEmpty()) {
@@ -1630,45 +1862,75 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
         if (ticker.endsWith(".t")) {
             return ticker.toUpperCase(Locale.ROOT);
         }
+        if (ticker.endsWith(".us")) {
+            return ticker.substring(0, ticker.length() - 3).toUpperCase(Locale.ROOT);
+        }
+        if (ticker.endsWith(".nq") || ticker.endsWith(".n")) {
+            int cut = ticker.lastIndexOf('.');
+            if (cut > 0) {
+                return ticker.substring(0, cut).toUpperCase(Locale.ROOT);
+            }
+        }
         return ticker.toUpperCase(Locale.ROOT);
     }
 
-    private String resolveCompanyLocalName(UniverseRecord record, String yahooTicker) {
-        if (record.name != null && !record.name.trim().isEmpty()) {
-            return record.name.trim();
+    private String normalizeYahooTickerSymbol(String symbol) {
+        String token = safeText(symbol).toUpperCase(Locale.ROOT);
+        if (token.endsWith(".US")) {
+            return token.substring(0, token.length() - 3);
         }
-        String fromIndustry = industryService.companyNameOf(yahooTicker);
-        if (fromIndustry != null && !fromIndustry.trim().isEmpty() && !fromIndustry.equalsIgnoreCase(yahooTicker)) {
-            return fromIndustry.trim();
+        if (token.endsWith(".NQ") || token.endsWith(".N")) {
+            int cut = token.lastIndexOf('.');
+            if (cut > 0) {
+                return token.substring(0, cut);
+            }
+        }
+        return token;
+    }
+
+    private String resolveCompanyLocalName(UniverseRecord record, String yahooTicker) {
+        String fromIndustry = normalizeUnknownText(industryService.companyNameOf(yahooTicker), "");
+        if (!fromIndustry.isEmpty() && !fromIndustry.equalsIgnoreCase(yahooTicker)) {
+            return fromIndustry;
+        }
+        if (record.name != null && !record.name.trim().isEmpty()) {
+            String name = record.name.trim();
+            if (!name.equalsIgnoreCase(record.ticker)) {
+                return name;
+            }
         }
         if (record.code != null && !record.code.trim().isEmpty()) {
             return record.code.trim();
         }
+        String normalized = normalizeYahooTickerSymbol(yahooTicker);
+        if (!normalized.isEmpty()) {
+            return normalized;
+        }
         return record.ticker == null ? "" : record.ticker;
     }
 
-private String buildDisplayName(String localName, String code, String industryZh, String industryEn) {
+private String buildDisplayName(String code, String localName) {
+        String c = safeText(code).toUpperCase(Locale.ROOT);
         String n = safeText(localName);
-        String c = safeText(code);
-        String zh = safeText(industryZh);
-        String en = safeText(industryEn);
-        String industry;
-        if (!zh.isEmpty() && !en.isEmpty()) {
-            industry = zh.equalsIgnoreCase(en) ? zh : (zh + "/" + en);
-        } else if (!zh.isEmpty()) {
-            industry = zh;
-        } else if (!en.isEmpty()) {
-            industry = en;
-        } else {
-            industry = "Unknown";
-        }
         if (n.isEmpty()) {
             n = c;
         }
         if (c.isEmpty()) {
-            return String.format(Locale.US, "%s (%s)", n, industry);
+            return n;
         }
-        return String.format(Locale.US, "%s %s (%s)", n, c, industry);
+        return c + " " + n;
+    }
+
+    private String normalizeUnknownText(String value, String fallback) {
+        String text = safeText(value);
+        if (text.isEmpty()) {
+            return fallback;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        if ("unknown".equals(lower) || "隴幢ｽｪ驕擾ｽ･".equals(text)) {
+            return fallback;
+        }
+        return text;
     }
 
 private double computePctChange(Double last, Double prev) {
@@ -1996,9 +2258,28 @@ private void addMarketCoverageDiagnostics(
     ) {
         int marketTotal = summary == null ? 0 : Math.max(summary.total, Math.max(0, fallbackDenominator));
         int marketFetch = summary == null ? 0 : Math.max(0, summary.fetchCoverage);
-        int marketIndicator = summary == null ? 0 : Math.max(0, summary.indicatorCoverage);
+        int marketIndicatorRaw = summary == null ? 0 : Math.max(0, summary.indicatorCoverage);
+        int tradableDenominator = summary == null ? 0 : Math.max(0, summary.tradableDenominator);
+        int tradableIndicator = summary == null ? 0 : Math.max(0, summary.tradableIndicatorCoverage);
+        if (tradableDenominator <= 0) {
+            tradableDenominator = marketTotal;
+            tradableIndicator = marketIndicatorRaw;
+        }
+        boolean useTradable = config.getBoolean("report.coverage.use_tradable_denominator", true);
+        int selectedIndicator = useTradable ? tradableIndicator : marketIndicatorRaw;
+        int selectedIndicatorDenominator = useTradable ? tradableDenominator : marketTotal;
+
         diagnostics.addCoverage("market_scan_fetch_coverage", marketFetch, marketTotal, source, owner);
-        diagnostics.addCoverage("market_scan_indicator_coverage", marketIndicator, marketTotal, source, owner);
+        diagnostics.addCoverage("market_scan_indicator_coverage_raw", marketIndicatorRaw, marketTotal, source, owner);
+        diagnostics.addCoverage("market_scan_indicator_coverage_tradable", tradableIndicator, tradableDenominator, source, owner);
+        diagnostics.addCoverage("market_scan_indicator_coverage", selectedIndicator, selectedIndicatorDenominator, source, owner);
+        double rawPct = marketTotal <= 0 ? 0.0 : (marketIndicatorRaw * 100.0 / marketTotal);
+        double tradablePct = tradableDenominator <= 0 ? 0.0 : (tradableIndicator * 100.0 / tradableDenominator);
+        diagnostics.addNote(String.format(Locale.US, "market_scan_indicator_coverage_raw_pct=%.1f", rawPct));
+        diagnostics.addNote(String.format(Locale.US, "market_scan_indicator_coverage_tradable_pct=%.1f", tradablePct));
+        if (summary != null && summary.breakdownDenominatorExcluded != null && !summary.breakdownDenominatorExcluded.isEmpty()) {
+            diagnostics.addNote("market_tradable_denominator_excluded=" + summary.breakdownDenominatorExcluded);
+        }
 
         boolean marketAvailable = marketTotal > 0;
         boolean watchAvailable = diagnostics.coverages.containsKey("watchlist_fetch_coverage");
@@ -2033,6 +2314,28 @@ private void addMarketCoverageDiagnostics(
             diagnostics.addNote("coverage_scope switched to WATCHLIST because market summary is unavailable.");
         } else {
             diagnostics.selectCoverage("MARKET", "market_scan_fetch_coverage", "market_scan_indicator_coverage", source, owner);
+        }
+
+        Diagnostics.CoverageMetric watchIndicator = diagnostics.coverages.get("watchlist_indicator_coverage");
+        Diagnostics.CoverageMetric marketTradable = diagnostics.coverages.get("market_scan_indicator_coverage_tradable");
+        double minTop5Coverage = config.getDouble("report.top5.min_indicator_coverage_pct", 80.0);
+        if (watchIndicator != null
+                && watchIndicator.denominator > 0
+                && watchIndicator.pct >= 99.9
+                && marketTradable != null
+                && marketTradable.denominator > 0
+                && marketTradable.pct < minTop5Coverage) {
+            diagnostics.addNote("Watchlist indicators are usable, but market Top5 sample is incomplete; use Top5 as reference only.");
+        }
+        if (marketTradable != null && marketTradable.denominator > 0) {
+            boolean top5Enabled = marketTradable.pct >= minTop5Coverage;
+            System.out.println(String.format(
+                    Locale.US,
+                    "Top5 coverage gate: enabled=%s tradable_pct=%.1f threshold=%.1f",
+                    top5Enabled,
+                    marketTradable.pct,
+                    minTop5Coverage
+            ));
         }
     }
 
@@ -2153,6 +2456,29 @@ private EventMemoryService.MemoryInsights collectMemoryInsights(
         return new ArrayList<>(out);
     }
 
+    private String buildNewsSourcesConfig() {
+        String explicit = config.getString("watchlist.news.sources", "");
+        if ("override".equalsIgnoreCase(config.sourceOf("watchlist.news.sources")) && !explicit.isBlank()) {
+            return explicit;
+        }
+        List<String> sources = new ArrayList<>();
+        if (config.getBoolean("news.source.google_rss", true)) {
+            sources.add("google");
+        }
+        if (config.getBoolean("news.source.bing", true)) {
+            sources.add("bing");
+        }
+        if (config.getBoolean("news.source.yahoo_finance", true)) {
+            sources.add("yahoo");
+        }
+        if (sources.isEmpty()) {
+            sources.add("google");
+            sources.add("bing");
+            sources.add("yahoo");
+        }
+        return String.join(",", sources);
+    }
+
 private String safeText(String value) {
         return value == null ? "" : value.trim();
     }
@@ -2207,7 +2533,7 @@ private ScanStats scanUniverse(
         if (total == 0) {
             return new ScanStats(topN);
         }
-        int threads = Math.max(1, config.getInt("scan.threads", 8));
+        int threads = Math.max(1, config.getInt("fetch.concurrent", config.getInt("scan.threads", 8)));
         int logEvery = Math.max(0, config.getInt("scan.progress.log_every", 100));
         long startedNanos = System.nanoTime();
         ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -2388,6 +2714,9 @@ private String normalizeRequestFailureCategory(String category, String errorMess
         if (raw.contains("timeout") || msg.contains("timed out")) {
             return "timeout";
         }
+        if (raw.contains("429") || msg.contains("http 429")) {
+            return "rate_limit";
+        }
         if ("no_data".equals(raw) || msg.contains("no_data") || msg.contains("404")) {
             return "no_data";
         }
@@ -2453,7 +2782,8 @@ private TickerScanResult scanTicker(UniverseRecord universe) {
                 );
             }
 
-            List<BarDaily> yahooBars = fetchBarsFromYahoo(universe.ticker, yahooTicker);
+            YahooFetchResult yahooFetch = fetchBarsFromYahoo(universe.ticker, yahooTicker, fetchBarsMarket, "market");
+            List<BarDaily> yahooBars = yahooFetch.bars;
             boolean yahooHasScreeningShape = hasScreeningShape(yahooBars);
             if (!yahooBars.isEmpty() && yahooHasScreeningShape) {
                 return evaluateBars(
@@ -2462,10 +2792,10 @@ private TickerScanResult scanTicker(UniverseRecord universe) {
                         0L,
                         0L,
                         "yahoo",
-                        false,
-                        "",
+                        yahooFetch.requestFailed,
+                        yahooFetch.requestFailureCategory,
                         nanosToMillis(System.nanoTime() - started),
-                        ScanFailureReason.NONE
+                        requestFailureReason(yahooFetch.requestFailureCategory)
                 );
             }
 
@@ -2476,10 +2806,10 @@ private TickerScanResult scanTicker(UniverseRecord universe) {
                         0L,
                         0L,
                         "cache",
-                        false,
-                        "",
+                        yahooFetch.requestFailed,
+                        yahooFetch.requestFailureCategory,
                         nanosToMillis(System.nanoTime() - started),
-                        ScanFailureReason.NONE
+                        requestFailureReason(yahooFetch.requestFailureCategory)
                 );
             }
 
@@ -2490,10 +2820,10 @@ private TickerScanResult scanTicker(UniverseRecord universe) {
                         0L,
                         0L,
                         "yahoo",
-                        false,
-                        "",
+                        yahooFetch.requestFailed,
+                        yahooFetch.requestFailureCategory,
                         nanosToMillis(System.nanoTime() - started),
-                        ScanFailureReason.NONE
+                        requestFailureReason(yahooFetch.requestFailureCategory)
                 );
             }
 
@@ -2505,20 +2835,20 @@ private TickerScanResult scanTicker(UniverseRecord universe) {
                         0L,
                         "cache",
                         true,
-                        "no_data",
+                        safeText(yahooFetch.requestFailureCategory).isEmpty() ? "no_data" : yahooFetch.requestFailureCategory,
                         nanosToMillis(System.nanoTime() - started),
-                        ScanFailureReason.HTTP_404_NO_DATA
+                        requestFailureReason(safeText(yahooFetch.requestFailureCategory).isEmpty() ? "no_data" : yahooFetch.requestFailureCategory)
                 );
             }
 
             return TickerScanResult.failed(
                     universe,
-                    "no_data",
+                    "fetch_failed:" + safeText(yahooFetch.requestFailureCategory),
                     0L,
                     0L,
                     "yahoo",
                     true,
-                    "no_data",
+                    safeText(yahooFetch.requestFailureCategory).isEmpty() ? "no_data" : yahooFetch.requestFailureCategory,
                     nanosToMillis(System.nanoTime() - started),
                     false,
                     0,
@@ -2526,7 +2856,7 @@ private TickerScanResult scanTicker(UniverseRecord universe) {
                     Double.NaN,
                     false,
                     DataInsufficientReason.NO_DATA,
-                    ScanFailureReason.HTTP_404_NO_DATA
+                    requestFailureReason(safeText(yahooFetch.requestFailureCategory).isEmpty() ? "no_data" : yahooFetch.requestFailureCategory)
             );
         } catch (Exception e) {
             return TickerScanResult.failed(
@@ -2675,6 +3005,28 @@ private TickerScanResult evaluateBars(
                         true,
                         DataInsufficientReason.NONE,
                         ScanFailureReason.OTHER
+                );
+            }
+            IndicatorCoverageResult coverage = evaluateIndicatorCoverage(ind);
+            if (!coverage.coreReady() || (!indicatorAllowPartial && !coverage.missingOptionalIndicators.isEmpty())) {
+                return TickerScanResult.ok(
+                        universe,
+                        bars,
+                        null,
+                        downloadNanos,
+                        parseNanos,
+                        dataSource,
+                        requestFailed,
+                        requestFailureCategory,
+                        fetchLatencyMs,
+                        "cache".equalsIgnoreCase(dataSource),
+                        barsCount,
+                        lastTradeDate,
+                        ind.lastClose,
+                        true,
+                        false,
+                        DataInsufficientReason.NONE,
+                        ScanFailureReason.NONE
                 );
             }
 
@@ -3207,6 +3559,24 @@ private String universeSignature(List<UniverseRecord> universe) {
             this.context = context;
             this.aiTriggered = aiTriggered;
             this.error = error == null ? "" : error;
+        }
+    }
+
+    private static final class YahooFetchResult {
+        final List<BarDaily> bars;
+        final boolean requestFailed;
+        final String requestFailureCategory;
+        final String error;
+
+        private YahooFetchResult(List<BarDaily> bars, boolean requestFailed, String requestFailureCategory, String error) {
+            this.bars = bars == null ? List.of() : bars;
+            this.requestFailed = requestFailed;
+            this.requestFailureCategory = requestFailureCategory == null ? "" : requestFailureCategory;
+            this.error = error == null ? "" : error;
+        }
+
+        static YahooFetchResult empty(String requestFailureCategory, String error) {
+            return new YahooFetchResult(List.of(), true, requestFailureCategory, error);
         }
     }
 

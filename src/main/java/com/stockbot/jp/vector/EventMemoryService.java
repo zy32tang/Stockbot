@@ -36,6 +36,10 @@ public final class EventMemoryService {
         this.marketZone = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
     }
 
+    public VectorSearchService vectorSearchService() {
+        return vectorSearchService;
+    }
+
     public MemoryInsights buildInsights(
             String watchItem,
             String ticker,

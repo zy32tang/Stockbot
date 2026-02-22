@@ -88,12 +88,37 @@ public final class ScanResultDao {
         int total = 0;
         int fetchCoverage = 0;
         int indicatorCoverage = 0;
+        int tradableDenominator = 0;
+        int tradableIndicatorCoverage = 0;
+        Map<String, Integer> breakdownDenominatorExcluded = new LinkedHashMap<>();
+        breakdownDenominatorExcluded.put("filtered_non_tradable", 0);
+        breakdownDenominatorExcluded.put("history_short", 0);
+        breakdownDenominatorExcluded.put("stale", 0);
+        breakdownDenominatorExcluded.put("http_404/no_data", 0);
 
         try (Connection conn = database.connect()) {
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT COUNT(*) AS total, " +
                             "SUM(CASE WHEN fetch_success THEN 1 ELSE 0 END) AS fetch_coverage, " +
-                            "SUM(CASE WHEN indicator_ready THEN 1 ELSE 0 END) AS indicator_coverage " +
+                            "SUM(CASE WHEN indicator_ready THEN 1 ELSE 0 END) AS indicator_coverage, " +
+                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='filtered_non_tradable' THEN 1 ELSE 0 END) AS ex_filtered_non_tradable, " +
+                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='history_short' THEN 1 ELSE 0 END) AS ex_history_short, " +
+                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='stale' THEN 1 ELSE 0 END) AS ex_stale, " +
+                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='http_404/no_data' OR LOWER(COALESCE(request_failure_category, ''))='no_data' THEN 1 ELSE 0 END) AS ex_no_data, " +
+                            "SUM(CASE WHEN NOT (" +
+                            "LOWER(COALESCE(failure_reason, ''))='filtered_non_tradable' OR " +
+                            "LOWER(COALESCE(failure_reason, ''))='history_short' OR " +
+                            "LOWER(COALESCE(failure_reason, ''))='stale' OR " +
+                            "LOWER(COALESCE(failure_reason, ''))='http_404/no_data' OR " +
+                            "LOWER(COALESCE(request_failure_category, ''))='no_data'" +
+                            ") THEN 1 ELSE 0 END) AS tradable_denominator, " +
+                            "SUM(CASE WHEN indicator_ready AND NOT (" +
+                            "LOWER(COALESCE(failure_reason, ''))='filtered_non_tradable' OR " +
+                            "LOWER(COALESCE(failure_reason, ''))='history_short' OR " +
+                            "LOWER(COALESCE(failure_reason, ''))='stale' OR " +
+                            "LOWER(COALESCE(failure_reason, ''))='http_404/no_data' OR " +
+                            "LOWER(COALESCE(request_failure_category, ''))='no_data'" +
+                            ") THEN 1 ELSE 0 END) AS tradable_indicator_coverage " +
                             "FROM scan_results WHERE run_id=?"
             )) {
                 ps.setLong(1, runId);
@@ -102,6 +127,16 @@ public final class ScanResultDao {
                         total = rs.getInt("total");
                         fetchCoverage = rs.getInt("fetch_coverage");
                         indicatorCoverage = rs.getInt("indicator_coverage");
+                        int excludedFiltered = rs.getInt("ex_filtered_non_tradable");
+                        int excludedHistory = rs.getInt("ex_history_short");
+                        int excludedStale = rs.getInt("ex_stale");
+                        int excludedNoData = rs.getInt("ex_no_data");
+                        breakdownDenominatorExcluded.put("filtered_non_tradable", Math.max(0, excludedFiltered));
+                        breakdownDenominatorExcluded.put("history_short", Math.max(0, excludedHistory));
+                        breakdownDenominatorExcluded.put("stale", Math.max(0, excludedStale));
+                        breakdownDenominatorExcluded.put("http_404/no_data", Math.max(0, excludedNoData));
+                        tradableDenominator = rs.getInt("tradable_denominator");
+                        tradableIndicatorCoverage = rs.getInt("tradable_indicator_coverage");
                     }
                 }
             }
@@ -149,7 +184,17 @@ public final class ScanResultDao {
             }
         }
 
-        return new ScanResultSummary(total, fetchCoverage, indicatorCoverage, failureCounts, requestFailureCounts, insufficientCounts);
+        return new ScanResultSummary(
+                total,
+                fetchCoverage,
+                indicatorCoverage,
+                Math.max(0, tradableDenominator),
+                Math.max(0, tradableIndicatorCoverage),
+                breakdownDenominatorExcluded,
+                failureCounts,
+                requestFailureCounts,
+                insufficientCounts
+        );
     }
 
     public Map<String, Integer> dataSourceCountsByRun(long runId) throws SQLException {

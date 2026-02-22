@@ -5,6 +5,8 @@ import com.stockbot.model.DailyPrice;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -37,7 +39,8 @@ public class MarketDataService {
     public List<DailyBar> fetchDailyHistoryBars(String ticker, String range, String interval) {
         List<DailyBar> out = new ArrayList<>();
         try {
-            String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + ticker
+            String encodedTicker = encodeTickerForPath(ticker);
+            String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encodedTicker
                     + "?range=" + range + "&interval=" + interval;
             String body = http.getText(url, 30);
 
@@ -84,8 +87,19 @@ public class MarketDataService {
                 out.add(new DailyBar(d, open, high, low, close, volume));
             }
             out.sort(Comparator.comparing(dp -> dp.date));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            throw new RuntimeException("fetch_daily_history_failed: " + e.getMessage(), e);
+        }
         return out;
+    }
+
+    private String encodeTickerForPath(String ticker) {
+        String raw = ticker == null ? "" : ticker.trim();
+        if (raw.isEmpty()) {
+            return raw;
+        }
+        // Symbols like ^N225 must be encoded in URL path.
+        return URLEncoder.encode(raw, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
 /**

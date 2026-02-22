@@ -5,6 +5,9 @@ import org.apache.logging.log4j.Logger;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import javax.sql.DataSource;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -42,11 +45,26 @@ public final class Database {
     }
 
     public Connection connect() throws SQLException {
-        Connection raw = dataSource.getConnection();
-        try (Statement st = raw.createStatement()) {
-            st.execute("SET search_path TO " + schema + ", public");
+        ensureSqliteParentDirIfNeeded();
+        try {
+            Connection raw = dataSource.getConnection();
+            try (Statement st = raw.createStatement()) {
+                st.execute("SET search_path TO " + schema + ", public");
+            }
+            return sqlLogEnabled ? SqlLogProxy.wrapConnection(raw, SQL_LOG) : raw;
+        } catch (SQLException e) {
+            String cwd = Paths.get(".").toAbsolutePath().normalize().toString();
+            String sqlitePath = sqliteDbPathFromJdbc(jdbcUrl);
+            String hint = classifyConnectFailure(e);
+            String details = "DB connect failed: jdbc_url=" + maskedJdbcUrl()
+                    + ", schema=" + schema
+                    + ", db_path=" + (sqlitePath == null ? "-" : sqlitePath)
+                    + ", cwd=" + cwd
+                    + ", hint=" + hint
+                    + ", cause=" + safe(e.getMessage());
+            System.err.println(details);
+            throw new SQLException(details, e.getSQLState(), e.getErrorCode(), e);
         }
-        return sqlLogEnabled ? SqlLogProxy.wrapConnection(raw, SQL_LOG) : raw;
     }
 
     public String dbType() {
@@ -74,5 +92,54 @@ public final class Database {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private void ensureSqliteParentDirIfNeeded() {
+        String sqlitePath = sqliteDbPathFromJdbc(jdbcUrl);
+        if (sqlitePath == null) {
+            return;
+        }
+        try {
+            Path path = Paths.get(sqlitePath).toAbsolutePath().normalize();
+            Path parent = path.getParent();
+            if (parent != null && !Files.exists(parent)) {
+                Files.createDirectories(parent);
+            }
+        } catch (Exception e) {
+            System.err.println("WARN: failed to create sqlite parent directory: " + e.getMessage());
+        }
+    }
+
+    private String sqliteDbPathFromJdbc(String url) {
+        if (isBlank(url)) {
+            return null;
+        }
+        String token = url.trim();
+        if (!token.toLowerCase().startsWith("jdbc:sqlite:")) {
+            return null;
+        }
+        String path = token.substring("jdbc:sqlite:".length()).trim();
+        if (path.isEmpty() || ":memory:".equalsIgnoreCase(path)) {
+            return null;
+        }
+        return path;
+    }
+
+    private String classifyConnectFailure(SQLException e) {
+        String msg = safe(e == null ? null : e.getMessage()).toLowerCase();
+        if (msg.contains("permission denied") || msg.contains("access is denied")) {
+            return "permission";
+        }
+        if (msg.contains("locked") || msg.contains("database is locked")) {
+            return "locked";
+        }
+        if (msg.contains("no such file") || msg.contains("cannot open") || msg.contains("does not exist")) {
+            return "missing_dir";
+        }
+        return "connection_error";
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 }

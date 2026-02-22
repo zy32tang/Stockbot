@@ -5,6 +5,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * 模块说明：HttpClientEx（class）。
@@ -32,12 +33,35 @@ public class HttpClientEx {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public String getText(String url, int timeoutSeconds) throws Exception {
+        return getText(url, timeoutSeconds, null);
+    }
+
+    public String getText(String url, int timeoutSeconds, Map<String, String> headers) throws Exception {
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .GET()
                 .header("User-Agent", "StockBot/3.0")
                 .build();
+        if (headers != null && !headers.isEmpty()) {
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .GET()
+                    .header("User-Agent", "StockBot/3.0");
+            for (Map.Entry<String, String> e : headers.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) {
+                    continue;
+                }
+                String key = e.getKey().trim();
+                String value = e.getValue().trim();
+                if (key.isEmpty() || value.isEmpty()) {
+                    continue;
+                }
+                builder.header(key, value);
+            }
+            req = builder.build();
+        }
         HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() >= 200 && resp.statusCode() < 300) return resp.body();
         throw new RuntimeException("HTTP " + resp.statusCode() + " for " + url);

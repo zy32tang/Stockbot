@@ -67,6 +67,7 @@ public final class StockBotApplication {
     private static final String BG_SCAN_LAST_STARTUP_KEY = "daily.background_scan.last_startup_at";
     private static final Duration BG_SCAN_TRIGGER_INTERVAL = Duration.ofHours(8);
     private EventMemoryService eventMemoryService;
+    private boolean runtimeSummaryLogged = false;
 
 public static void main(String[] args) {
         int exit = new StockBotApplication().run(args);
@@ -321,6 +322,7 @@ private int runScheduledMergeReport(
             ScanResultDao scanResultDao,
             ZoneId zoneId
     ) throws Exception {
+        logRuntimeConfigSummary(config);
         DailyRunner dailyRunner = new DailyRunner(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, eventMemoryService);
         boolean forceUniverse = config.getBoolean("app.background_scan.force_universe_update", false);
         Integer topN = null;
@@ -408,6 +410,7 @@ private int sendTestDailyReportEmail(
             ScanResultDao scanResultDao,
             boolean forceSend
     ) throws Exception {
+        logRuntimeConfigSummary(config);
         boolean sendEmail = config.getBoolean("email.enabled", true);
         if (forceSend) {
             sendEmail = true;
@@ -451,12 +454,17 @@ private int sendTestDailyReportEmail(
         String rawHtml = Files.readString(reportPath, StandardCharsets.UTF_8);
         List<Path> attachments = collectReportAttachments(rawHtml, reportPath);
         String html = stripTrendImagesFromHtml(rawHtml);
-        mailer.send(settings, subject, text, html, attachments);
-        System.out.println("Email sent to " + String.join(",", settings.to) + " from run_id=" + outcome.runId);
+        boolean sent = mailer.send(settings, subject, text, html, attachments);
+        if (sent) {
+            String modeLabel = settings.dryRun ? "Mail dry-run completed for " : "Email sent to ";
+            System.out.println(modeLabel + String.join(",", settings.to) + " from run_id=" + outcome.runId);
+        } else {
+            System.out.println("Report generated, but email failed (mail.fail_fast=false). run_id=" + outcome.runId);
+        }
         return 0;
     }
 
-private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutcome outcome) throws Exception {
+    private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutcome outcome) throws Exception {
         boolean sendEmail = config.getBoolean("email.enabled", true);
         if (!sendEmail) {
             return;
@@ -486,8 +494,38 @@ private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutco
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(outcome.startedAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size()
         );
-        mailer.send(settings, subject, text, html, attachments);
-        System.out.println("Email sent to " + String.join(",", settings.to) + (noviceMode ? " [novice]" : ""));
+        boolean sent = mailer.send(settings, subject, text, html, attachments);
+        if (sent) {
+            String modeLabel = settings.dryRun ? "Mail dry-run completed for " : "Email sent to ";
+            System.out.println(modeLabel + String.join(",", settings.to) + (noviceMode ? " [novice]" : ""));
+        } else {
+            System.out.println("Report generated, but email failed (mail.fail_fast=false).");
+        }
+    }
+
+    private void logRuntimeConfigSummary(Config config) {
+        if (runtimeSummaryLogged) {
+            return;
+        }
+        runtimeSummaryLogged = true;
+        int cpu = Runtime.getRuntime().availableProcessors();
+        long maxMemGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L);
+        int fetchConcurrent = config.getInt("fetch.concurrent", config.getInt("scan.threads", 8));
+        int newsConcurrent = config.getInt("news.concurrent", 10);
+        int aiTimeoutSec = config.getInt("ai.timeout_sec", config.getInt("watchlist.ai.timeout_sec", 180));
+        int vectorTopK = config.getInt("vector.memory.signal.top_k", 10);
+        String polymarketMode = config.getString("polymarket.impact.mode", "vector");
+        System.out.println(String.format(
+                Locale.US,
+                "RUN_CONFIG cpu=%d max_mem_gb=%d fetch.concurrent=%d news.concurrent=%d ai.timeout_sec=%d vector.signal.top_k=%d polymarket.mode=%s",
+                cpu,
+                maxMemGb,
+                fetchConcurrent,
+                newsConcurrent,
+                aiTimeoutSec,
+                vectorTopK,
+                polymarketMode
+        ));
     }
 
 private void logDailySections(DailyRunOutcome outcome, Config config) {

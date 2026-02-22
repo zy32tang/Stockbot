@@ -434,8 +434,10 @@ public final class Config {
         defaults.put("email.subject_prefix", "[StockBot JP]");
 
         defaults.put("report.top5.min_fetch_coverage_pct", "80");
+        defaults.put("report.top5.min_indicator_coverage_pct", "80");
         defaults.put("report.top5.skip_on_partial", "true");
         defaults.put("report.top5.allow_partial_when_coverage_ge", "101");
+        defaults.put("report.coverage.use_tradable_denominator", "true");
         defaults.put("report.coverage.show_scope", "true");
         defaults.put("report.metrics.top5_perf.enabled", "false");
         defaults.put("report.metrics.top5_perf.win_rate_30d", "0");
@@ -453,6 +455,11 @@ public final class Config {
         defaults.put("watchlist.news.max_items", "20");
         defaults.put("watchlist.news.sources", "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews,investing,ft,guardian,seekingalpha");
         defaults.put("watchlist.news.query_variants", "10");
+        defaults.put("news.query.max_variants", "6");
+        defaults.put("news.query.max_results_per_variant", "8");
+        defaults.put("news.source.google_rss", "true");
+        defaults.put("news.source.bing", "true");
+        defaults.put("news.source.yahoo_finance", "true");
         defaults.put("watchlist.news.query_topics", "株価,決算,業績,見通し,受注,設備投資,提携,規制,為替,金利,guidance,earnings,outlook,supply chain");
         defaults.put("watchlist.news.digest_items", "8");
         defaults.put("watchlist.non_jp_handling", "PROCESS_SEPARATELY");
@@ -465,12 +472,26 @@ public final class Config {
         defaults.put("watchlist.ai.score_threshold", "-2.0");
         defaults.put("watchlist.ai.news_min", "8");
         defaults.put("watchlist.ai.drop_pct_threshold", "-2.0");
+        defaults.put("ai.enabled", "true");
+        defaults.put("ai.watchlist.mode", "ALL");
+        defaults.put("ai.timeout_sec", "600");
+        defaults.put("ai.max_tokens", "1200");
+        defaults.put("ai.temperature", "0.2");
+        defaults.put("fetch.concurrent", "12");
+        defaults.put("news.concurrent", "10");
+        defaults.put("fetch.bars", "520");
+        defaults.put("fetch.bars.market", "520");
+        defaults.put("fetch.bars.watchlist", "520");
+        defaults.put("fetch.retry.max", "2");
+        defaults.put("fetch.retry.backoff_ms", "400");
+        defaults.put("indicator.core", "sma20,sma60,rsi14,atr14");
+        defaults.put("indicator.allow_partial", "true");
         defaults.put("vector.memory.enabled", "true");
         defaults.put("vector.memory.news.max_items", "3");
-        defaults.put("vector.memory.news.top_k", "8");
+        defaults.put("vector.memory.news.top_k", "12");
         defaults.put("vector.memory.news.max_cases", "5");
-        defaults.put("vector.memory.signal.top_k", "6");
-        defaults.put("vector.memory.signal.max_cases", "5");
+        defaults.put("vector.memory.signal.top_k", "10");
+        defaults.put("vector.memory.signal.max_cases", "20");
 
         defaults.put("polymarket.enabled", "true");
         defaults.put("polymarket.gamma_base_url", "https://gamma-api.polymarket.com");
@@ -480,8 +501,22 @@ public final class Config {
         defaults.put("polymarket.top_n", "3");
         defaults.put("polymarket.timeout_sec", "12");
         defaults.put("polymarket.topic_map_path", "");
-        defaults.put("polymarket.impact.mode", "rule");
+        defaults.put("polymarket.baseUrl", "https://gamma-api.polymarket.com");
+        defaults.put("polymarket.impact.mode", "vector");
+        defaults.put("polymarket.vector.top_k", "5");
+        defaults.put("polymarket.vector.min_similarity", "0.35");
+        defaults.put("polymarket.refresh.max_markets", "5000");
+        defaults.put("polymarket.refresh.ttl_hours", "12");
+        defaults.put("polymarket.weights.sim", "0.55");
+        defaults.put("polymarket.weights.recency", "0.20");
+        defaults.put("polymarket.weights.liquidity", "0.15");
+        defaults.put("polymarket.weights.confidence", "0.10");
         defaults.put("polymarket.watch_impact_limit", "4");
+        defaults.put("ticker.name.cache.ttl_hours", "168");
+        defaults.put("ticker.name.cache.path", "");
+        defaults.put("mail.dry_run", "false");
+        defaults.put("mail.fail_fast", "false");
+        defaults.put("mail.dry_run.dir", "outputs/mail_dry_run");
 
         defaults.put("schedule.zone", "Asia/Tokyo");
         defaults.put("schedule.times", "11:30,15:00");

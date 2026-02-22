@@ -1,16 +1,60 @@
-# Local override sample for StockBot
-# These values can be overridden by environment variables:
-# STOCKBOT_DB_URL, STOCKBOT_DB_USER, STOCKBOT_DB_PASS
+# StockBot local override sample
+# Copy values you need into ./config.properties
 
-# PostgreSQL connection (default backend)
-db.url=jdbc:postgresql://localhost:5432/stockbot
-db.user=stockbot
-db.pass=stockbot
-db.schema=stockbot
+email.enabled=true
+email.smtp_host=smtp.gmail.com
+email.smtp_port=587
+email.smtp_user=YOUR_SMTP_USER
+email.smtp_pass=YOUR_SMTP_PASS
+email.from=YOUR_FROM
+email.to=YOUR_TO
+email.subject_prefix=[StockBot JP]
 
-# Keep SQL log enabled during setup/debug
-db.sql_log.enabled=true
+report.top5.min_indicator_coverage_pct=80
+report.coverage.use_tradable_denominator=true
 
-# Optional
-email.enabled=false
-watchlist.path=watchlist.txt
+fetch.concurrent=12
+news.concurrent=10
+fetch.bars=520
+fetch.bars.market=520
+fetch.bars.watchlist=520
+fetch.retry.max=2
+fetch.retry.backoff_ms=400
+
+news.query.max_variants=6
+news.query.max_results_per_variant=8
+news.source.google_rss=true
+news.source.bing=true
+news.source.yahoo_finance=true
+
+ai.enabled=true
+ai.watchlist.mode=ALL
+ai.timeout_sec=600
+ai.max_tokens=1200
+ai.temperature=0.2
+
+indicator.core=sma20,sma60,rsi14,atr14
+indicator.allow_partial=true
+
+vector.memory.enabled=true
+vector.memory.news.top_k=12
+vector.memory.signal.top_k=10
+vector.memory.signal.max_cases=20
+
+polymarket.enabled=true
+polymarket.baseUrl=https://gamma-api.polymarket.com
+polymarket.impact.mode=vector
+polymarket.vector.top_k=5
+polymarket.vector.min_similarity=0.35
+polymarket.refresh.max_markets=5000
+polymarket.refresh.ttl_hours=12
+polymarket.weights.sim=0.55
+polymarket.weights.recency=0.20
+polymarket.weights.liquidity=0.15
+polymarket.weights.confidence=0.10
+
+ticker.name.cache.ttl_hours=168
+
+mail.dry_run=false
+mail.fail_fast=false
+mail.dry_run.dir=outputs/mail_dry_run
