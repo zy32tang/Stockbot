@@ -8,7 +8,6 @@ import com.stockbot.jp.db.MetadataDao;
 import com.stockbot.jp.db.MigrationRunner;
 import com.stockbot.jp.db.RunDao;
 import com.stockbot.jp.db.ScanResultDao;
-import com.stockbot.jp.db.SqliteToPostgresMigrator;
 import com.stockbot.jp.db.UniverseDao;
 import com.stockbot.jp.model.BacktestReport;
 import com.stockbot.jp.model.DailyRunOutcome;
@@ -29,38 +28,43 @@ import org.apache.commons.cli.Options;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.io.IoBuilder;
+import org.quartz.CronScheduleBuilder;
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobBuilder;
+import org.quartz.JobDetail;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.quartz.Scheduler;
+import org.quartz.SchedulerContext;
+import org.quartz.Trigger;
+import org.quartz.TriggerBuilder;
+import org.quartz.impl.StdSchedulerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Set;
+import java.util.TimeZone;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public final class StockBotApplication {
-    private static final DateTimeFormatter SCHEDULE_TIME_FMT = DateTimeFormatter.ofPattern("H:mm");
-    private static final DateTimeFormatter DISPLAY_TS_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z");
     private static final Pattern REPORT_TS_PATTERN = Pattern.compile("jp_daily_(\\d{8}_\\d{6})\\.html", Pattern.CASE_INSENSITIVE);
     private static final Pattern INDICATOR_COVERAGE_PCT_PATTERN = Pattern.compile("INDICATOR_COVERAGE[^\\n%]*\\(([0-9]+(?:\\.[0-9]+)?)%\\)", Pattern.CASE_INSENSITIVE);
     private static volatile boolean LOG_ROUTE_INSTALLED = false;
-    private static final String BG_SCAN_LAST_STARTUP_KEY = "daily.background_scan.last_startup_at";
-    private static final Duration BG_SCAN_TRIGGER_INTERVAL = Duration.ofHours(8);
     private final HtmlPostProcessor htmlPostProcessor = new HtmlPostProcessor();
     private EventMemoryService eventMemoryService;
     private boolean runtimeSummaryLogged = false;
@@ -98,10 +102,11 @@ public int run(String[] args) {
 
             boolean noArgs = args == null || args.length == 0;
             boolean explicitTestCmd = cmd.hasOption("test");
-            boolean explicitMigrateCmd = cmd.hasOption("migrate-sqlite-to-postgres");
-            boolean explicitMaintenanceCmd = cmd.hasOption("reset-batch") || explicitMigrateCmd;
-            boolean scheduleEnabled = (!explicitTestCmd && !explicitMaintenanceCmd && config.getBoolean("app.schedule.enabled", false))
-                    || (!explicitTestCmd && !explicitMaintenanceCmd && noArgs && mode.equals("DAILY"));
+            boolean explicitMaintenanceCmd = cmd.hasOption("reset-batch");
+            boolean scheduleEnabled = !explicitTestCmd
+                    && !explicitMaintenanceCmd
+                    && mode.equals("DAILY")
+                    && (noArgs || config.getBoolean("app.schedule.enabled", false));
             if (scheduleEnabled && !mode.equals("DAILY")) {
                 System.err.println("ERROR: schedule requires DAILY mode (config app.mode=DAILY).");
                 return 2;
@@ -118,23 +123,6 @@ public int run(String[] args) {
                     + ", url=" + database.maskedJdbcUrl()
                     + ", schema=" + database.schema());
             new MigrationRunner().run(database);
-
-            if (explicitMigrateCmd) {
-                String sqlitePathRaw = cmd.getOptionValue("sqlite-path");
-                if (sqlitePathRaw == null || sqlitePathRaw.trim().isEmpty()) {
-                    System.err.println("ERROR: --sqlite-path is required when --migrate-sqlite-to-postgres is set.");
-                    return 2;
-                }
-                Path sqlitePath = workingDir.resolve(sqlitePathRaw).normalize();
-                SqliteToPostgresMigrator migrator = new SqliteToPostgresMigrator(database);
-                SqliteToPostgresMigrator.MigrationStats stats = migrator.migrate(sqlitePath);
-                System.out.println("SQLite migration completed.");
-                System.out.println("watchlist_count=" + stats.watchlistCount);
-                System.out.println("price_daily_count=" + stats.priceDailyCount);
-                System.out.println("signals_count=" + stats.signalsCount);
-                System.out.println("run_logs_count=" + stats.runLogsCount);
-                return 0;
-            }
 
             UniverseDao universeDao = new UniverseDao(database);
             MetadataDao metadataDao = new MetadataDao(database);
@@ -196,73 +184,77 @@ private int runSchedule(
             RunDao runDao,
             ScanResultDao scanResultDao
     ) throws Exception {
-        ZoneId zoneId = ZoneId.of(config.getString("schedule.zone", "Asia/Tokyo"));
-        List<LocalTime> runTimes = parseTimes(config.getString("schedule.times", ""));
-        if (runTimes.isEmpty()) {
-            LocalTime fallback = parseTime(config.getString("schedule.time", "16:30"));
-            if (fallback != null) {
-                runTimes = List.of(fallback);
-            }
-        }
-        if (runTimes.isEmpty()) {
-            System.err.println("ERROR: invalid schedule config. Use schedule.times=11:30,15:00 or schedule.time=16:30");
-            return 2;
-        }
-
-        ReentrantLock runLock = new ReentrantLock();
-        AtomicBoolean stopBackground = new AtomicBoolean(false);
-        Thread backgroundThread = startBackgroundScanner(
-                config,
-                universeDao,
-                metadataDao,
-                barDailyDao,
-                runDao,
-                scanResultDao,
-                runLock,
-                stopBackground
+        ZoneId zoneId = ZoneId.of("Asia/Tokyo");
+        Scheduler scheduler = StdSchedulerFactory.getDefaultScheduler();
+        SchedulerContext schedulerContext = scheduler.getContext();
+        schedulerContext.put(
+                DailyReportJob.CONTEXT_KEY,
+                new DailyReportJobContext(
+                        this,
+                        cmd,
+                        config,
+                        universeDao,
+                        metadataDao,
+                        barDailyDao,
+                        runDao,
+                        scanResultDao,
+                        zoneId
+                )
         );
-        System.out.println("Background scanner enabled. trigger=startup_gap>=8h OR runtime_every_8h");
 
-        System.out.println("Schedule mode started. zone=" + zoneId + ", times=" + formatTimes(runTimes));
-        try {
-            while (true) {
-                ZonedDateTime now = ZonedDateTime.now(zoneId);
-                ZonedDateTime next = nextRunTime(now, runTimes);
-                System.out.println("Next run at " + DISPLAY_TS_FMT.format(next));
-                if (!sleepUntil(next)) {
-                    return 130;
-                }
+        JobDetail job = JobBuilder.newJob(DailyReportJob.class)
+                .withIdentity("dailyReportJob", "stockbot")
+                .build();
+        Trigger trigger1130 = TriggerBuilder.newTrigger()
+                .withIdentity("dailyReport-1130", "stockbot")
+                .forJob(job)
+                .withSchedule(CronScheduleBuilder.dailyAtHourAndMinute(11, 30)
+                        .inTimeZone(TimeZone.getTimeZone(zoneId))
+                        .withMisfireHandlingInstructionDoNothing())
+                .build();
+        Trigger trigger1500 = TriggerBuilder.newTrigger()
+                .withIdentity("dailyReport-1500", "stockbot")
+                .forJob(job)
+                .withSchedule(CronScheduleBuilder.dailyAtHourAndMinute(15, 0)
+                        .inTimeZone(TimeZone.getTimeZone(zoneId))
+                        .withMisfireHandlingInstructionDoNothing())
+                .build();
+        Set<Trigger> triggers = new LinkedHashSet<>();
+        triggers.add(trigger1130);
+        triggers.add(trigger1500);
+        scheduler.scheduleJob(job, triggers, true);
 
-                boolean locked = false;
-                try {
-                    runLock.lockInterruptibly();
-                    locked = true;
-                    int exit = runScheduledMergeReport(
-                            cmd,
-                            config,
-                            universeDao,
-                            metadataDao,
-                            barDailyDao,
-                            runDao,
-                            scanResultDao,
-                            zoneId
-                    );
-                    if (exit != 0) {
-                        System.err.println("WARN: scheduled report event failed. exit=" + exit);
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return 130;
-                } finally {
-                    if (locked) {
-                        runLock.unlock();
-                    }
+        scheduler.start();
+        System.out.println("Quartz scheduler started. zone=Asia/Tokyo, triggers=11:30,15:00");
+
+        CountDownLatch keepAlive = new CountDownLatch(1);
+        Thread shutdownHook = new Thread(() -> {
+            try {
+                if (!scheduler.isShutdown()) {
+                    scheduler.shutdown(true);
                 }
+            } catch (Exception e) {
+                System.err.println("WARN: quartz shutdown failed: " + e.getMessage());
+            } finally {
+                keepAlive.countDown();
             }
+        }, "stockbot-quartz-shutdown");
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
+
+        try {
+            keepAlive.await();
+            return 0;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return 130;
         } finally {
-            stopBackground.set(true);
-            if (backgroundThread != null) {
-                backgroundThread.interrupt();
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM is already shutting down.
+            }
+            if (!scheduler.isShutdown()) {
+                scheduler.shutdown(true);
             }
         }
     }
@@ -368,8 +360,6 @@ private void resetBatchCheckpointOnly(Config config, MetadataDao metadataDao) th
         } else {
             System.out.println("Batch checkpoint reset skipped. resume is disabled.");
         }
-        metadataDao.delete(BG_SCAN_LAST_STARTUP_KEY);
-        System.out.println("Background scan startup trigger reset. key=" + BG_SCAN_LAST_STARTUP_KEY);
     }
 
 private int runBacktest(Config config, BarDailyDao barDailyDao, RunDao runDao) throws Exception {
@@ -655,11 +645,9 @@ private String trimForLog(String value, int maxLen) {
 
 private Options buildOptions() {
         Options options = new Options();
-        options.addOption(Option.builder().longOpt("reset-batch").desc("clear batch checkpoint and background startup trigger checkpoint, then exit").build());
+        options.addOption(Option.builder().longOpt("reset-batch").desc("clear batch checkpoint, then exit").build());
         options.addOption(Option.builder().longOpt("test").desc("rebuild DAILY report from latest market scan data and send test email (no full-market rescan)").build());
         options.addOption(Option.builder().longOpt("novice").desc("send novice action-only mail body (max 10 lines)").build());
-        options.addOption(Option.builder().longOpt("migrate-sqlite-to-postgres").desc("one-off migrate data from SQLite into PostgreSQL").build());
-        options.addOption(Option.builder().longOpt("sqlite-path").hasArg().argName("path").desc("path to source SQLite database file").build());
         options.addOption(Option.builder().longOpt("help").desc("show help").build());
         return options;
     }
@@ -713,179 +701,78 @@ private String resolveMode(Config config) {
         return normalizeMode(config.getString("app.mode", "DAILY"));
     }
 
-private Thread startBackgroundScanner(
-            Config config,
-            UniverseDao universeDao,
-            MetadataDao metadataDao,
-            BarDailyDao barDailyDao,
-            RunDao runDao,
-            ScanResultDao scanResultDao,
-            ReentrantLock runLock,
-            AtomicBoolean stopFlag
-    ) {
-        Instant startupAt = Instant.now();
-        Thread t = new Thread(() -> {
-            StartupScanDecision decision = evaluateStartupScanDecision(metadataDao, startupAt);
-            if (!decision.shouldScan) {
-                if (decision.lastStartupAt == null) {
-                    System.out.println("IDLE_SCAN startup trigger skipped. no prior startup timestamp.");
-                } else {
-                    long hours = Duration.between(decision.lastStartupAt, startupAt).toHours();
-                    System.out.println("IDLE_SCAN startup trigger skipped. startup gap=" + hours + "h < 8h (last_startup="
-                            + decision.lastStartupAt + ", current_startup=" + startupAt + ")");
-                }
+    private static final class DailyReportJobContext {
+        final StockBotApplication app;
+        final CommandLine cmd;
+        final Config config;
+        final UniverseDao universeDao;
+        final MetadataDao metadataDao;
+        final BarDailyDao barDailyDao;
+        final RunDao runDao;
+        final ScanResultDao scanResultDao;
+        final ZoneId zoneId;
+
+        private DailyReportJobContext(
+                StockBotApplication app,
+                CommandLine cmd,
+                Config config,
+                UniverseDao universeDao,
+                MetadataDao metadataDao,
+                BarDailyDao barDailyDao,
+                RunDao runDao,
+                ScanResultDao scanResultDao,
+                ZoneId zoneId
+        ) {
+            this.app = app;
+            this.cmd = cmd;
+            this.config = config;
+            this.universeDao = universeDao;
+            this.metadataDao = metadataDao;
+            this.barDailyDao = barDailyDao;
+            this.runDao = runDao;
+            this.scanResultDao = scanResultDao;
+            this.zoneId = zoneId;
+        }
+    }
+
+    @DisallowConcurrentExecution
+    public static final class DailyReportJob implements Job {
+        static final String CONTEXT_KEY = "stockbot.dailyReportJobContext";
+        private static final ReentrantLock RUN_LOCK = new ReentrantLock();
+
+        @Override
+        public void execute(JobExecutionContext context) throws JobExecutionException {
+            if (!RUN_LOCK.tryLock()) {
+                System.out.println("Quartz trigger skipped: DailyReportJob is already running.");
+                return;
             }
-
-            boolean startupScanPending = decision.shouldScan;
-            Instant nextRuntimeScanAt = startupAt.plus(BG_SCAN_TRIGGER_INTERVAL);
-
-            while (!stopFlag.get()) {
-                if (startupScanPending) {
-                    boolean triggered = tryRunBackgroundScanOnce(
-                            config,
-                            universeDao,
-                            metadataDao,
-                            barDailyDao,
-                            runDao,
-                            scanResultDao,
-                            runLock,
-                            "startup"
-                    );
-                    if (triggered) {
-                        startupScanPending = false;
-                        nextRuntimeScanAt = Instant.now().plus(BG_SCAN_TRIGGER_INTERVAL);
-                    } else if (!sleepMillisInterruptible(30_000L)) {
-                        return;
-                    }
-                    continue;
+            try {
+                SchedulerContext schedulerContext = context.getScheduler().getContext();
+                Object raw = schedulerContext.get(CONTEXT_KEY);
+                if (!(raw instanceof DailyReportJobContext)) {
+                    throw new JobExecutionException("missing DailyReportJobContext");
                 }
-
-                Instant now = Instant.now();
-                if (now.isBefore(nextRuntimeScanAt)) {
-                    long ms = Duration.between(now, nextRuntimeScanAt).toMillis();
-                    long sleepMs = Math.min(30_000L, Math.max(1L, ms));
-                    if (!sleepMillisInterruptible(sleepMs)) {
-                        return;
-                    }
-                    continue;
-                }
-
-                boolean triggered = tryRunBackgroundScanOnce(
-                        config,
-                        universeDao,
-                        metadataDao,
-                        barDailyDao,
-                        runDao,
-                        scanResultDao,
-                        runLock,
-                        "runtime_8h"
+                DailyReportJobContext jobContext = (DailyReportJobContext) raw;
+                int exit = jobContext.app.runScheduledMergeReport(
+                        jobContext.cmd,
+                        jobContext.config,
+                        jobContext.universeDao,
+                        jobContext.metadataDao,
+                        jobContext.barDailyDao,
+                        jobContext.runDao,
+                        jobContext.scanResultDao,
+                        jobContext.zoneId
                 );
-                if (triggered) {
-                    nextRuntimeScanAt = Instant.now().plus(BG_SCAN_TRIGGER_INTERVAL);
-                } else if (!sleepMillisInterruptible(30_000L)) {
-                    return;
+                if (exit != 0) {
+                    throw new JobExecutionException("scheduled report failed, exit=" + exit, false);
                 }
+            } catch (JobExecutionException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new JobExecutionException(e, false);
+            } finally {
+                RUN_LOCK.unlock();
             }
-        }, "stockbot-background-scanner");
-        t.setDaemon(true);
-        t.start();
-        return t;
-    }
-
-private boolean tryRunBackgroundScanOnce(
-            Config config,
-            UniverseDao universeDao,
-            MetadataDao metadataDao,
-            BarDailyDao barDailyDao,
-            RunDao runDao,
-            ScanResultDao scanResultDao,
-            ReentrantLock runLock,
-            String trigger
-    ) {
-        boolean locked = runLock.tryLock();
-        if (!locked) {
-            System.out.println("IDLE_SCAN deferred. trigger=" + trigger + ", reason=run_lock_busy");
-            return false;
-        }
-        try {
-            runBackgroundScanOnce(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao);
-            return true;
-        } finally {
-            runLock.unlock();
-        }
-    }
-
-private void runBackgroundScanOnce(
-            Config config,
-            UniverseDao universeDao,
-            MetadataDao metadataDao,
-            BarDailyDao barDailyDao,
-            RunDao runDao,
-            ScanResultDao scanResultDao
-    ) {
-        try {
-            boolean forceUniverse = config.getBoolean("app.background_scan.force_universe_update", false);
-            Integer topN = null;
-            int topOverride = config.getInt("app.background_scan.top_n_override", 0);
-            if (topOverride > 0) {
-                topN = topOverride;
-            }
-
-            DailyRunner dailyRunner = new DailyRunner(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, eventMemoryService);
-            Instant start = Instant.now();
-            DailyRunOutcome outcome = dailyRunner.runMarketScanOnly(forceUniverse, topN, true);
-            long sec = Duration.between(start, Instant.now()).toSeconds();
-            System.out.println("IDLE_SCAN completed. run_id=" + outcome.runId
-                    + ", batch_progress=" + outcome.processedSegments + "/" + outcome.totalSegments
-                    + ", partial_run=" + outcome.partialRun
-                    + ", market_ref=" + outcome.marketReferenceCandidates.size()
-                    + ", elapsed_sec=" + sec);
-        } catch (Exception e) {
-            System.err.println("WARN: IDLE_SCAN failed: " + e.getMessage());
-        }
-    }
-
-private StartupScanDecision evaluateStartupScanDecision(MetadataDao metadataDao, Instant startupAt) {
-        Instant lastStartupAt = null;
-        try {
-            Optional<String> raw = metadataDao.get(BG_SCAN_LAST_STARTUP_KEY);
-            if (raw.isPresent() && !raw.get().trim().isEmpty()) {
-                try {
-                    lastStartupAt = Instant.parse(raw.get().trim());
-                } catch (Exception ignored) {
-                    lastStartupAt = null;
-                }
-            }
-            metadataDao.put(BG_SCAN_LAST_STARTUP_KEY, startupAt.toString());
-        } catch (Exception e) {
-            System.err.println("WARN: failed to read/write startup checkpoint for background scan: " + e.getMessage());
-            return new StartupScanDecision(true, lastStartupAt);
-        }
-        if (lastStartupAt == null) {
-            return new StartupScanDecision(true, null);
-        }
-        Duration gap = Duration.between(lastStartupAt, startupAt);
-        boolean shouldScan = !gap.isNegative() && gap.compareTo(BG_SCAN_TRIGGER_INTERVAL) >= 0;
-        return new StartupScanDecision(shouldScan, lastStartupAt);
-    }
-
-private boolean sleepMillisInterruptible(long ms) {
-        try {
-            Thread.sleep(Math.max(1L, ms));
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
-    }
-
-    private static final class StartupScanDecision {
-        final boolean shouldScan;
-        final Instant lastStartupAt;
-
-        private StartupScanDecision(boolean shouldScan, Instant lastStartupAt) {
-            this.shouldScan = shouldScan;
-            this.lastStartupAt = lastStartupAt;
         }
     }
 
@@ -912,61 +799,6 @@ private List<String> loadWatchlist(Config config) {
         } catch (Exception e) {
             System.err.println("WARN: failed to read watchlist: " + path + ", " + e.getMessage());
             return List.of();
-        }
-    }
-
-private LocalTime parseTime(String value) {
-        try {
-            return LocalTime.parse(value, SCHEDULE_TIME_FMT);
-        } catch (DateTimeParseException ignored) {
-            return null;
-        }
-    }
-
-private List<LocalTime> parseTimes(String value) {
-        if (value == null || value.trim().isEmpty()) {
-            return List.of();
-        }
-        List<LocalTime> out = new ArrayList<>();
-        for (String token : value.split(",")) {
-            LocalTime parsed = parseTime(token.trim());
-            if (parsed != null && !out.contains(parsed)) {
-                out.add(parsed);
-            }
-        }
-        Collections.sort(out);
-        return out;
-    }
-
-private String formatTimes(List<LocalTime> times) {
-        return times.stream()
-                .map(t -> t.format(DateTimeFormatter.ofPattern("HH:mm")))
-                .collect(Collectors.joining(","));
-    }
-
-private ZonedDateTime nextRunTime(ZonedDateTime now, List<LocalTime> runTimes) {
-        for (LocalTime t : runTimes) {
-            ZonedDateTime candidate = now.toLocalDate().atTime(t).atZone(now.getZone());
-            if (candidate.isAfter(now)) {
-                return candidate;
-            }
-        }
-        return now.toLocalDate().plusDays(1).atTime(runTimes.get(0)).atZone(now.getZone());
-    }
-
-private boolean sleepUntil(ZonedDateTime next) {
-        while (true) {
-            long millis = Duration.between(ZonedDateTime.now(next.getZone()), next).toMillis();
-            if (millis <= 0) {
-                return true;
-            }
-            long chunk = Math.min(30_000L, millis);
-            try {
-                Thread.sleep(chunk);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
         }
     }
 }

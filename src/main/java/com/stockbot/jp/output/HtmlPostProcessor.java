@@ -3,6 +3,7 @@ package com.stockbot.jp.output;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.TextNode;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -30,6 +31,8 @@ public final class HtmlPostProcessor {
         doc.outputSettings().syntax(Document.OutputSettings.Syntax.html);
         doc.select("script,noscript,iframe,object,embed").remove();
         doc.select("meta[http-equiv=refresh]").remove();
+        cleanupMarkdownArtifacts(doc);
+        normalizeBlockText(doc);
 
         if (removeTrendImages) {
             doc.select("img[src^=trends/]").remove();
@@ -67,6 +70,57 @@ public final class HtmlPostProcessor {
                 div.remove();
             }
         }
+    }
+
+    private void cleanupMarkdownArtifacts(Document doc) {
+        if (doc == null) {
+            return;
+        }
+        for (Element el : doc.getAllElements()) {
+            for (TextNode node : el.textNodes()) {
+                String cleaned = stripMarkdown(node.text());
+                if (!cleaned.equals(node.text())) {
+                    node.text(cleaned);
+                }
+            }
+        }
+    }
+
+    private void normalizeBlockText(Document doc) {
+        if (doc == null) {
+            return;
+        }
+        for (Element block : doc.select("p,li,div,td,th")) {
+            for (TextNode node : block.textNodes()) {
+                String normalized = normalizeInline(node.text());
+                if (!normalized.equals(node.text())) {
+                    node.text(normalized);
+                }
+            }
+        }
+    }
+
+    private String stripMarkdown(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        String cleaned = text.replace("```", " ")
+                .replace("###", " ")
+                .replace("**", " ")
+                .replace("__", " ")
+                .replaceAll("(?m)^\\s{0,3}[-*]\\s+", "");
+        return normalizeInline(cleaned);
+    }
+
+    private String normalizeInline(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        return text.replace("\r", " ")
+                .replace("\n", " ")
+                .replace('\u3000', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private boolean isTrendLabel(Element element) {

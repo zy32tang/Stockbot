@@ -40,6 +40,8 @@ import com.stockbot.jp.model.TickerScanResult;
 import com.stockbot.jp.model.UniverseRecord;
 import com.stockbot.jp.model.UniverseUpdateResult;
 import com.stockbot.jp.model.WatchlistAnalysis;
+import com.stockbot.jp.news.NewsItemDao;
+import com.stockbot.jp.news.WatchlistNewsPipeline;
 import com.stockbot.jp.output.ReportBuilder;
 import com.stockbot.jp.strategy.CandidateFilter;
 import com.stockbot.jp.strategy.ReasonJsonBuilder;
@@ -213,6 +215,7 @@ public final class DailyRunner {
     private final com.stockbot.scoring.ScoringEngine legacyScoringEngine;
     private final GatePolicy gatePolicy;
     private final OllamaClient ollamaClient;
+    private final WatchlistNewsPipeline watchlistNewsPipeline;
     private final EventMemoryService eventMemoryService;
     private final TickerResolver tickerResolver;
     private final TickerNameResolver tickerNameResolver;
@@ -323,6 +326,8 @@ public DailyRunner(
                 Math.max(5, config.getInt("ai.timeout_sec", config.getInt("watchlist.ai.timeout_sec", 180))),
                 Math.max(0, config.getInt("ai.max_tokens", config.getInt("watchlist.ai.max_tokens", 80)))
         );
+        NewsItemDao newsItemDao = new NewsItemDao(runDao.database());
+        this.watchlistNewsPipeline = new WatchlistNewsPipeline(config, legacyHttp, newsItemDao);
         this.tickerResolver = new TickerResolver(config.getString("watchlist.default_market_for_alpha", "US"));
         this.tickerNameResolver = new TickerNameResolver(config, legacyHttp);
         this.nonJpHandling = parseNonJpHandling(config.getString("watchlist.non_jp_handling", "PROCESS_SEPARATELY"));
@@ -886,10 +891,11 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                         legacy.aiTriggered,
                         safeText(legacy.context.gateReason),
                         legacy.context.news.size(),
-                        newsService.sourceLabel(),
+                        blankTo(legacy.newsSourceLabel, "rss->pgvector"),
                         trimChars(safeText(legacy.context.aiSummary), watchlistMaxAiChars),
                         mergeDigestLines(
                                 buildNewsDigestLines(legacy.context.news),
+                                legacy.clusterDigestLines,
                                 memoryInsights == null ? List.of() : memoryInsights.toDigestLines()
                         ),
                         technical.candidate.score,
@@ -1699,6 +1705,8 @@ private LegacyWatchResult buildLegacyWatchResult(
         StockContext sc = new StockContext(yahooTicker);
         String error = "";
         boolean aiTriggered = false;
+        String newsSourceLabel = "";
+        List<String> clusterDigestLines = List.of();
         try {
             List<DailyPrice> history = toDailyPrices(priceTrace == null ? List.of() : priceTrace.bars);
             if (history.isEmpty()) {
@@ -1715,20 +1723,39 @@ private LegacyWatchResult buildLegacyWatchResult(
             sc.pctChange = computePctChange(sc.lastClose, sc.prevClose);
 
             List<String> queries = buildNewsQueries(record, watchItem, yahooTicker);
-            List<NewsItem> fetchedNews = newsService.fetchNews(yahooTicker, queries);
-            sc.news.addAll(fetchedNews);
-            boolean hasRelevantNews = !fetchedNews.isEmpty();
+            String companyName = resolveCompanyLocalName(record, yahooTicker);
+            String industryEn = normalizeUnknownText(industryService.industryOf(yahooTicker), "");
+            String industryZh = normalizeUnknownText(industryService.industryZhOf(yahooTicker), "");
+            WatchlistNewsPipeline.PipelineResult newsResult = watchlistNewsPipeline.processTicker(
+                    yahooTicker,
+                    companyName,
+                    industryZh,
+                    industryEn,
+                    queries,
+                    config.getString("watchlist.news.lang", "ja"),
+                    config.getString("watchlist.news.region", "JP")
+            );
+            sc.news.addAll(newsResult.newsItems);
+            newsSourceLabel = safeText(newsResult.sourceLabel);
+            clusterDigestLines = newsResult.digestLines == null ? List.of() : newsResult.digestLines;
+            boolean hasRelevantNews = !newsResult.newsItems.isEmpty();
 
             factorEngine.computeFactors(sc);
             legacyScoringEngine.score(sc);
             aiTriggered = aiEnabled && (aiAllMode || gatePolicy.shouldRunAi(sc));
+            sc.aiRan = aiTriggered;
+            String summaryText = TextFormatter.toPlainText(safeText(newsResult.summaryHtml));
+            if (summaryText.isBlank()) {
+                summaryText = hasRelevantNews
+                        ? "Cluster summary unavailable."
+                        : "No material event clusters in lookback window.";
+            }
             if (aiTriggered) {
-                sc.aiRan = true;
-                String rawSummary = ollamaClient.summarize(Prompts.buildSystemPrompt(), Prompts.buildPrompt(sc));
-                sc.aiSummary = TextFormatter.toPlainText(rawSummary);
+                sc.aiSummary = summaryText;
             } else {
-                sc.aiRan = false;
-                sc.aiSummary = hasRelevantNews ? "" : "莉頑律譌鬮伜ｺｦ逶ｸ蜈ｳ逧・ｸ蠢・渕譛ｬ髱｢譁ｰ髣ｻ";
+                sc.aiSummary = hasRelevantNews
+                        ? summaryText
+                        : "No material event clusters in lookback window.";
             }
         } catch (Exception e) {
             String msg = safeText(e.getMessage());
@@ -1746,7 +1773,7 @@ private LegacyWatchResult buildLegacyWatchResult(
                     error
             ));
         }
-        return new LegacyWatchResult(sc, aiTriggered, error);
+        return new LegacyWatchResult(sc, aiTriggered, error, newsSourceLabel, clusterDigestLines);
     }
 
 private List<BarDaily> toBarsFromYahoo(String jpTicker, List<MarketDataService.DailyBar> history) {
@@ -1826,7 +1853,7 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
 
         List<String> topics = parseTopicCsv(config.getString(
                 "watchlist.news.query_topics",
-                "髫ｴ・ｬ繝ｻ・ｪ髣憺屮・ｽ・｡,髮手ｶ｣・ｽ・ｺ鬩阪ｅ繝ｻ髫ｶ魃会ｽｽ・ｭ鬩搾ｽｵ繝ｻ・ｾ,鬮ｫ諷墓ｴｸ・つ陞｢・ｹ繝ｻ・ｰ,髯ｷ・ｿ驍・ｽｲ繝ｻ・ｳ繝ｻ・ｨ,鬮ｫ・ｪ繝ｻ・ｭ髯具ｽｯ陷ｻ荳ｻ繝ｻ鬮ｮ蟲ｨ繝ｻ髫ｰ・ｰ陷井ｺ･・｣・ｰ,鬮ｫ遨ゑｽｸ讒ｫ・ｮ繝ｻ髴難ｽ､繝ｻ・ｺ髫ｴ蜴・ｽｽ・ｿ,鬯ｩ・･陞滂ｽｧ髣後・guidance,earnings,outlook,supply chain"
+                "鬯ｮ・ｫ繝ｻ・ｴ郢晢ｽｻ繝ｻ・ｬ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｪ鬯ｮ・｣隲橸ｽｺ陞ｻ・ｮ郢晢ｽｻ繝ｻ・ｽ郢晢ｽｻ繝ｻ・｡,鬯ｮ・ｮ隰・・・ｽ・ｶ繝ｻ・｣郢晢ｽｻ繝ｻ・ｽ郢晢ｽｻ繝ｻ・ｺ鬯ｯ・ｩ鬮ｦ・ｪ繝ｻ繝ｻ・ｹ譎｢・ｽ・ｻ鬯ｮ・ｫ繝ｻ・ｶ鬯ｲ繝ｻ・ｼ螟ｲ・ｽ・ｽ繝ｻ・ｽ郢晢ｽｻ繝ｻ・ｭ鬯ｯ・ｩ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・ｵ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｾ,鬯ｯ・ｮ繝ｻ・ｫ髫ｲ・ｷ陟・屮・ｽ・ｴ繝ｻ・ｸ郢晢ｽｻ邵ｺ・､・つ鬮ｯ讖ｸ・ｽ・｢郢晢ｽｻ繝ｻ・ｹ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｰ,鬯ｮ・ｯ繝ｻ・ｷ郢晢ｽｻ繝ｻ・ｿ鬯ｩ髦ｪ繝ｻ繝ｻ・ｽ繝ｻ・ｲ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｳ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｨ,鬯ｯ・ｮ繝ｻ・ｫ郢晢ｽｻ繝ｻ・ｪ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｭ鬯ｮ・ｯ陷茨ｽｷ繝ｻ・ｽ繝ｻ・ｯ鬮ｯ・ｷ繝ｻ・ｻ髣包ｽｳ繝ｻ・ｻ驛｢譎｢・ｽ・ｻ鬯ｯ・ｮ繝ｻ・ｮ髯晢ｽｲ繝ｻ・ｨ驛｢譎｢・ｽ・ｻ鬯ｮ・ｫ繝ｻ・ｰ郢晢ｽｻ繝ｻ・ｰ鬮ｯ・ｷ闔蛹・ｽｽ・ｺ繝ｻ・･郢晢ｽｻ繝ｻ・｣郢晢ｽｻ繝ｻ・ｰ,鬯ｯ・ｮ繝ｻ・ｫ鬩包ｽｨ郢ｧ謇假ｽｽ・ｽ繝ｻ・ｸ髫ｶ謚ｵ・ｽ・ｫ郢晢ｽｻ繝ｻ・ｮ驛｢譎｢・ｽ・ｻ鬯ｮ・ｴ鬮ｮ・｣繝ｻ・ｽ繝ｻ・､驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｺ鬯ｮ・ｫ繝ｻ・ｴ髯ｷ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｽ郢晢ｽｻ繝ｻ・ｿ,鬯ｯ・ｯ繝ｻ・ｩ郢晢ｽｻ繝ｻ・･鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｧ鬯ｮ・｣陟募ｾ後・guidance,earnings,outlook,supply chain"
         ));
         String anchor = company.isEmpty() ? (recordName.isEmpty() ? watchToken : recordName) : company;
         if (anchor.isEmpty()) {
@@ -2763,15 +2790,21 @@ private EventMemoryService.MemoryInsights collectMemoryInsights(
         }
     }
 
-    private List<String> mergeDigestLines(List<String> baseLines, List<String> extraLines) {
+    private List<String> mergeDigestLines(List<String>... digestGroups) {
         List<String> out = new ArrayList<>();
-        if (baseLines != null && !baseLines.isEmpty()) {
-            out.addAll(baseLines);
+        if (digestGroups == null || digestGroups.length == 0) {
+            return out;
         }
-        if (extraLines != null && !extraLines.isEmpty()) {
-            for (String line : extraLines) {
-                String text = safeText(line);
-                if (!text.isEmpty()) {
+        for (List<String> group : digestGroups) {
+            if (group == null || group.isEmpty()) {
+                continue;
+            }
+            for (String line : group) {
+                String text = safeText(line).trim();
+                if (text.isEmpty()) {
+                    continue;
+                }
+                if (!out.contains(text)) {
                     out.add(text);
                 }
             }
@@ -3946,11 +3979,21 @@ private String universeSignature(List<UniverseRecord> universe) {
         final StockContext context;
         final boolean aiTriggered;
         final String error;
+        final String newsSourceLabel;
+        final List<String> clusterDigestLines;
 
-        private LegacyWatchResult(StockContext context, boolean aiTriggered, String error) {
+        private LegacyWatchResult(
+                StockContext context,
+                boolean aiTriggered,
+                String error,
+                String newsSourceLabel,
+                List<String> clusterDigestLines
+        ) {
             this.context = context;
             this.aiTriggered = aiTriggered;
             this.error = error == null ? "" : error;
+            this.newsSourceLabel = newsSourceLabel == null ? "" : newsSourceLabel;
+            this.clusterDigestLines = clusterDigestLines == null ? List.of() : List.copyOf(clusterDigestLines);
         }
     }
 

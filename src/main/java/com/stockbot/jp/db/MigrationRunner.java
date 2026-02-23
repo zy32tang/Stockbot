@@ -127,6 +127,20 @@ public final class MigrationRunner {
                 "created_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
                 ")");
 
+        sqls.add("CREATE TABLE IF NOT EXISTS news_item (" +
+                "id BIGSERIAL PRIMARY KEY," +
+                "url TEXT NOT NULL UNIQUE," +
+                "title TEXT NOT NULL," +
+                "content TEXT NOT NULL," +
+                "source TEXT NOT NULL," +
+                "lang TEXT NULL," +
+                "region TEXT NULL," +
+                "published_at TIMESTAMPTZ NULL," +
+                "embedding VECTOR(1536) NULL," +
+                "created_at TIMESTAMPTZ NOT NULL DEFAULT now()," +
+                "updated_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
+                ")");
+
         sqls.add("CREATE TABLE IF NOT EXISTS metadata (" +
                 "meta_key TEXT PRIMARY KEY," +
                 "meta_value TEXT NOT NULL," +
@@ -204,6 +218,9 @@ public final class MigrationRunner {
         sqls.add("CREATE INDEX IF NOT EXISTS idx_run_logs_started ON run_logs(started_at DESC)");
         sqls.add("CREATE INDEX IF NOT EXISTS docs_ticker_published_idx ON docs(ticker, published_at DESC)");
         sqls.add("CREATE INDEX IF NOT EXISTS docs_embedding_ivfflat ON docs USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)");
+        sqls.add("CREATE INDEX IF NOT EXISTS news_item_published_idx ON news_item(published_at DESC)");
+        sqls.add("CREATE INDEX IF NOT EXISTS news_item_lang_region_idx ON news_item(lang, region)");
+        sqls.add("CREATE INDEX IF NOT EXISTS news_item_embedding_ivfflat ON news_item USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)");
         sqls.add("CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at DESC)");
         sqls.add("CREATE INDEX IF NOT EXISTS idx_candidates_run_rank ON candidates(run_id, rank_no)");
         sqls.add("CREATE INDEX IF NOT EXISTS idx_candidates_ticker ON candidates(ticker)");

@@ -5,12 +5,11 @@ import org.apache.logging.log4j.Logger;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import javax.sql.DataSource;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Locale;
 
 /**
  * Database connection manager backed by PostgreSQL.
@@ -28,6 +27,9 @@ public final class Database {
             throw new IllegalArgumentException("db.url must not be empty");
         }
         this.jdbcUrl = jdbcUrl.trim();
+        if (!this.jdbcUrl.toLowerCase(Locale.ROOT).startsWith("jdbc:postgresql:")) {
+            throw new IllegalArgumentException("db.url must use PostgreSQL JDBC URL (jdbc:postgresql://...)");
+        }
         this.schema = normalizeSchema(schema);
         this.sqlLogEnabled = sqlLogEnabled;
 
@@ -45,7 +47,6 @@ public final class Database {
     }
 
     public Connection connect() throws SQLException {
-        ensureSqliteParentDirIfNeeded();
         try {
             Connection raw = dataSource.getConnection();
             try (Statement st = raw.createStatement()) {
@@ -54,11 +55,9 @@ public final class Database {
             return sqlLogEnabled ? SqlLogProxy.wrapConnection(raw, SQL_LOG) : raw;
         } catch (SQLException e) {
             String cwd = Paths.get(".").toAbsolutePath().normalize().toString();
-            String sqlitePath = sqliteDbPathFromJdbc(jdbcUrl);
             String hint = classifyConnectFailure(e);
             String details = "DB connect failed: jdbc_url=" + maskedJdbcUrl()
                     + ", schema=" + schema
-                    + ", db_path=" + (sqlitePath == null ? "-" : sqlitePath)
                     + ", cwd=" + cwd
                     + ", hint=" + hint
                     + ", cause=" + safe(e.getMessage());
@@ -92,37 +91,6 @@ public final class Database {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
-    }
-
-    private void ensureSqliteParentDirIfNeeded() {
-        String sqlitePath = sqliteDbPathFromJdbc(jdbcUrl);
-        if (sqlitePath == null) {
-            return;
-        }
-        try {
-            Path path = Paths.get(sqlitePath).toAbsolutePath().normalize();
-            Path parent = path.getParent();
-            if (parent != null && !Files.exists(parent)) {
-                Files.createDirectories(parent);
-            }
-        } catch (Exception e) {
-            System.err.println("WARN: failed to create sqlite parent directory: " + e.getMessage());
-        }
-    }
-
-    private String sqliteDbPathFromJdbc(String url) {
-        if (isBlank(url)) {
-            return null;
-        }
-        String token = url.trim();
-        if (!token.toLowerCase().startsWith("jdbc:sqlite:")) {
-            return null;
-        }
-        String path = token.substring("jdbc:sqlite:".length()).trim();
-        if (path.isEmpty() || ":memory:".equalsIgnoreCase(path)) {
-            return null;
-        }
-        return path;
     }
 
     private String classifyConnectFailure(SQLException e) {

@@ -31,6 +31,6 @@ public final class ThymeleafReportRenderer {
         if (variables != null && !variables.isEmpty()) {
             variables.forEach(context::setVariable);
         }
-        return templateEngine.process("jp/daily_report", context);
+        return templateEngine.process("report_daily", context);
     }
 }

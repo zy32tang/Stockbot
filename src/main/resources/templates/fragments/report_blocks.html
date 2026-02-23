@@ -1,0 +1,117 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+  <th:block th:fragment="header(view)">
+    <h1 th:text="${view.reportTitle}">StockBot Daily Report</h1>
+    <h2>A. Header</h2>
+    <div class="grid">
+      <div class="tile" th:each="tile : ${view.topTiles}">
+        <div class="k" th:text="${tile.key}">key</div>
+        <div class="v" th:text="${tile.value}">value</div>
+      </div>
+    </div>
+    <div class="dangerbox" th:if="${view.hasSuspectPrice}">Possible price mapping issue across tickers.</div>
+    <div class="small" th:if="${view.hasSuspectPrice}">suspect tickers: <span th:text="${view.suspectTickers}">-</span></div>
+    <div class="small" style="margin-top:8px">
+      <span th:each="stat,iter : ${view.failureStats}">
+        <span th:text="${stat}">-</span><span th:if="${!iter.last}"> | </span>
+      </span>
+    </div>
+    <div class="small">coverage_source=<span th:text="${view.coverageSource}">UNKNOWN</span></div>
+    <div class="small" th:if="${view.partialMessage != null and !#strings.isEmpty(view.partialMessage)}" th:text="${view.partialMessage}"></div>
+  </th:block>
+
+  <th:block th:fragment="status(view)">
+    <h2>B. System Status</h2>
+    <div class="small">
+      <div th:each="line : ${view.systemStatusLines}" th:text="${line}"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Novice Summary</h3>
+      <div class="small" th:each="line : ${view.noviceLines}" th:text="${line}"></div>
+    </div>
+    <div class="card">
+      <div>
+        Action level:
+        <span class="chip" th:classappend="${view.actionAdvice.css}" th:text="${view.actionAdvice.level}">CHECK</span>
+      </div>
+      <div class="small" th:text="${view.actionAdvice.reason}"></div>
+      <div class="small">
+        Size cap single <span th:text="${view.actionAdvice.singleMaxPct}">5.0</span>% / total <span th:text="${view.actionAdvice.totalMaxPct}">50.0</span>%
+      </div>
+    </div>
+  </th:block>
+
+  <th:block th:fragment="watchlist(view)">
+    <h2>C. Watchlist</h2>
+    <table>
+      <tr>
+        <th>Name</th><th>Last</th><th>Action</th><th>Reasons</th><th>Entry</th><th>Stop</th><th>Target</th>
+      </tr>
+      <tr th:if="${#lists.isEmpty(view.watchRows)}"><td colspan="7">No watchlist rows</td></tr>
+      <tr th:each="row : ${view.watchRows}" th:classappend="${row.priceSuspect} ? 'suspect' : ''">
+        <td>
+          <span th:text="${row.name}">-</span>
+          <details><summary class="small">trace</summary><div class="small" th:text="${row.traceSummary}"></div></details>
+        </td>
+        <td th:text="${row.lastClose}">-</td>
+        <td><span class="chip" th:classappend="${row.actionCss}" th:text="${row.action}">WAIT</span></td>
+        <td><div class="small" th:each="reason : ${row.reasons}" th:text="${'- ' + reason}"></div></td>
+        <td th:text="${row.entryRange}">-</td>
+        <td th:text="${row.stopLoss}">-</td>
+        <td th:text="${row.takeProfit}">-</td>
+      </tr>
+    </table>
+    <div class="card" th:if="${!#lists.isEmpty(view.watchAiItems)}">
+      <h3 style="margin-top:0">News / AI</h3>
+      <div style="margin-bottom:8px" th:each="item : ${view.watchAiItems}">
+        <b th:text="${item.name}">ticker</b>
+        <div class="small" th:each="line : ${item.lines}" th:text="${line}"></div>
+        <details th:if="${item.newsDigests != null and !#lists.isEmpty(item.newsDigests)}">
+          <summary class="small">digests</summary>
+          <div class="small" th:each="d : ${item.newsDigests}" th:text="${'- ' + d}"></div>
+        </details>
+      </div>
+    </div>
+  </th:block>
+
+  <th:block th:fragment="topcards(view)">
+    <h2>D. Top 5</h2>
+    <div class="card">
+      <div class="small">
+        <span th:each="stat,iter : ${view.topCards.funnelStats}">
+          <span th:text="${stat}"></span><span th:if="${!iter.last}"> | </span>
+        </span>
+      </div>
+      <div class="small" th:if="${view.topCards.skipReason != null and !#strings.isEmpty(view.topCards.skipReason)}" th:text="${view.topCards.skipReason}"></div>
+      <details th:if="${view.topCards.gateLines != null and !#lists.isEmpty(view.topCards.gateLines)}">
+        <summary class="small">gate tree</summary>
+        <div class="small"><div th:each="line : ${view.topCards.gateLines}" th:text="${line}"></div></div>
+      </details>
+    </div>
+    <div class="warnbox" th:if="${view.topCards.emptyMessage != null and !#strings.isEmpty(view.topCards.emptyMessage)}" th:text="${view.topCards.emptyMessage}"></div>
+    <div class="card" th:each="card : ${view.topCards.cards}">
+      <div><b th:text="${'#' + card.rank + ' ' + card.name}">#1</b></div>
+      <div class="small">
+        last <span th:text="${card.latestPrice}">0.00</span> |
+        score <span class="chip gray" th:text="${card.score}">0.0</span> |
+        risk <span class="chip" th:classappend="${card.riskCss}" th:text="${card.riskText}">MID</span>
+      </div>
+      <div class="small" th:text="${card.planLine}"></div>
+      <ul><li th:each="reason : ${card.reasons}" th:text="${reason}"></li></ul>
+    </div>
+  </th:block>
+
+  <th:block th:fragment="footer(view)">
+    <h2>E. Notes</h2>
+    <div class="small"><div th:each="line : ${view.disclaimerLines}" th:text="${line}"></div></div>
+    <details>
+      <summary class="small">Diagnostics</summary>
+      <div class="small" th:if="${view.diagnostics.enabled}">
+        <div th:text="${'run_id=' + view.diagnostics.runId + ' | run_mode=' + view.diagnostics.runMode}"></div>
+        <div th:text="${'coverage_scope=' + view.diagnostics.coverageScope + ' | coverage_source=' + view.diagnostics.coverageSource}"></div>
+      </div>
+    </details>
+  </th:block>
+</body>
+</html>

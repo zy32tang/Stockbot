@@ -27,6 +27,10 @@ public final class RunDao {
         this.database = database;
     }
 
+    public Database database() {
+        return database;
+    }
+
     public void recoverDanglingRuns() {
         String sql = "UPDATE runs SET status='ABORTED', finished_at=?, notes=COALESCE(notes, '') || ';recovered_on_startup' " +
                 "WHERE status='RUNNING'";
