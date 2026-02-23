@@ -1,5 +1,6 @@
 package com.stockbot.jp.news;
 
+import com.stockbot.core.RunTelemetry;
 import com.stockbot.data.http.HttpClientEx;
 import com.stockbot.jp.config.Config;
 import com.stockbot.model.NewsItem;
@@ -26,13 +27,24 @@ public final class WatchlistNewsPipeline {
     private final NewsIngestor newsIngestor;
     private final OllamaEmbeddingService embeddingService;
     private final LangChainSummaryService summaryService;
+    private final RunTelemetry telemetry;
 
     public WatchlistNewsPipeline(Config config, HttpClientEx httpClient, NewsItemDao newsItemDao) {
+        this(config, httpClient, newsItemDao, null);
+    }
+
+    public WatchlistNewsPipeline(
+            Config config,
+            HttpClientEx httpClient,
+            NewsItemDao newsItemDao,
+            RunTelemetry telemetry
+    ) {
         this.config = config;
         this.newsItemDao = newsItemDao;
         this.newsIngestor = new NewsIngestor(config, httpClient, newsItemDao);
         this.embeddingService = new OllamaEmbeddingService(config, httpClient, newsItemDao);
         this.summaryService = new LangChainSummaryService(config);
+        this.telemetry = telemetry;
     }
 
     public PipelineResult processTicker(
@@ -44,18 +56,46 @@ public final class WatchlistNewsPipeline {
             String lang,
             String region
     ) {
-        NewsIngestor.IngestResult ingestResult = newsIngestor.ingest(ticker, queries, lang, region);
-        int embedded = embeddingService.embedMissing(Math.max(20, config.getInt("news.embedding.batch_size", 200)));
+        int queryCount = queries == null ? 0 : queries.size();
+        startStep(RunTelemetry.STEP_NEWS_FETCH);
+        NewsIngestor.IngestResult ingestResult;
+        try {
+            ingestResult = newsIngestor.ingest(ticker, queries, lang, region);
+            endStep(RunTelemetry.STEP_NEWS_FETCH, queryCount, ingestResult.fetchedCount, 0);
+        } catch (RuntimeException e) {
+            endStep(RunTelemetry.STEP_NEWS_FETCH, queryCount, 0, 1, e.getClass().getSimpleName());
+            throw e;
+        }
 
         String queryText = buildQueryText(ticker, companyName, industryZh, industryEn, queries);
-        float[] queryEmbedding = embeddingService.embedText(queryText);
+        int embedded;
+        float[] queryEmbedding;
+        startStep(RunTelemetry.STEP_EMBED);
+        try {
+            embedded = embeddingService.embedMissing(Math.max(20, config.getInt("news.embedding.batch_size", 200)));
+            queryEmbedding = embeddingService.embedText(queryText);
+            long output = embedded + (queryEmbedding.length > 0 ? 1 : 0);
+            endStep(
+                    RunTelemetry.STEP_EMBED,
+                    Math.max(1, ingestResult.fetchedCount),
+                    output,
+                    0,
+                    "query_vector_dim=" + queryEmbedding.length
+            );
+        } catch (RuntimeException e) {
+            endStep(RunTelemetry.STEP_EMBED, Math.max(1, ingestResult.fetchedCount), 0, 1, e.getClass().getSimpleName());
+            throw e;
+        }
         if (queryEmbedding.length == 0) {
+            incrementNewsStats(ingestResult.fetchedCount, 0, 0);
             return PipelineResult.empty(ingestResult.sourceLabel + "->pgvector", ingestResult.fetchedCount, embedded);
         }
 
         int topK = Math.max(1, config.getInt("vector.memory.news.top_k", 12));
         int lookbackDays = Math.max(1, config.getInt("news.lookback_days", 7));
         List<NewsItemDao.NewsItemRecord> matches;
+        boolean searchError = false;
+        startStep(RunTelemetry.STEP_VECTOR_SEARCH);
         try {
             matches = newsItemDao.searchSimilar(
                     queryEmbedding,
@@ -64,13 +104,23 @@ public final class WatchlistNewsPipeline {
         } catch (SQLException e) {
             System.err.println("WARN: news search failed ticker=" + safe(ticker) + ", err=" + e.getMessage());
             matches = List.of();
+            searchError = true;
         }
+        endStep(
+                RunTelemetry.STEP_VECTOR_SEARCH,
+                1,
+                matches.size(),
+                searchError ? 1 : 0,
+                searchError ? "search_failed" : ""
+        );
         if (matches.isEmpty()) {
+            incrementNewsStats(ingestResult.fetchedCount, 0, 0);
             return PipelineResult.empty(ingestResult.sourceLabel + "->pgvector", ingestResult.fetchedCount, embedded);
         }
 
         double dedupThreshold = clamp(config.getDouble("news.dedup.cosine_threshold", 0.97), 0.7, 0.9999);
         double clusterThreshold = clamp(config.getDouble("news.cluster.cosine_threshold", 0.90), 0.5, 0.9999);
+        startStep(RunTelemetry.STEP_TEXT_CLEAN);
         List<NewsItemDao.NewsItemRecord> deduped = deduplicate(matches, dedupThreshold);
 
         deduped.sort(Comparator
@@ -79,15 +129,30 @@ public final class WatchlistNewsPipeline {
         if (deduped.size() > topK) {
             deduped = new ArrayList<>(deduped.subList(0, topK));
         }
+        endStep(RunTelemetry.STEP_TEXT_CLEAN, matches.size(), deduped.size(), 0);
 
         List<NewsCluster> clusters = cluster(deduped, clusterThreshold);
-        String summaryHtml = summaryService.summarize(
-                ticker,
-                companyName,
-                toSummaryClusters(clusters)
-        );
+        startStep(RunTelemetry.STEP_AI_SUMMARY);
+        String summaryHtml;
+        try {
+            summaryHtml = summaryService.summarize(
+                    ticker,
+                    companyName,
+                    toSummaryClusters(clusters)
+            );
+            endStep(
+                    RunTelemetry.STEP_AI_SUMMARY,
+                    clusters.size(),
+                    summaryHtml == null || summaryHtml.isBlank() ? 0 : 1,
+                    0
+            );
+        } catch (RuntimeException e) {
+            endStep(RunTelemetry.STEP_AI_SUMMARY, clusters.size(), 0, 1, e.getClass().getSimpleName());
+            throw e;
+        }
         List<String> digestLines = buildDigestLines(clusters);
         List<NewsItem> topNews = toNewsItems(deduped);
+        incrementNewsStats(ingestResult.fetchedCount, deduped.size(), clusters.size());
 
         return new PipelineResult(
                 topNews,
@@ -307,6 +372,31 @@ public final class WatchlistNewsPipeline {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private void startStep(String stepName) {
+        if (telemetry == null) {
+            return;
+        }
+        telemetry.startStep(stepName);
+    }
+
+    private void endStep(String stepName, long itemsIn, long itemsOut, long errorCount) {
+        endStep(stepName, itemsIn, itemsOut, errorCount, "");
+    }
+
+    private void endStep(String stepName, long itemsIn, long itemsOut, long errorCount, String optionalNote) {
+        if (telemetry == null) {
+            return;
+        }
+        telemetry.endStep(stepName, itemsIn, itemsOut, errorCount, optionalNote);
+    }
+
+    private void incrementNewsStats(int rawInc, int dedupInc, int clusterInc) {
+        if (telemetry == null) {
+            return;
+        }
+        telemetry.incrementNewsStats(rawInc, dedupInc, clusterInc);
     }
 
     @Value

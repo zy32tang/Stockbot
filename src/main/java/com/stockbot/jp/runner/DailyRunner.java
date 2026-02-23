@@ -1,6 +1,8 @@
 package com.stockbot.jp.runner;
 
 import com.stockbot.app.Prompts;
+import com.stockbot.core.ModuleResult;
+import com.stockbot.core.RunTelemetry;
 import com.stockbot.core.diagnostics.CauseCode;
 import com.stockbot.core.diagnostics.Diagnostics;
 import com.stockbot.core.diagnostics.FeatureStatusResolver;
@@ -217,6 +219,7 @@ public final class DailyRunner {
     private final OllamaClient ollamaClient;
     private final WatchlistNewsPipeline watchlistNewsPipeline;
     private final EventMemoryService eventMemoryService;
+    private final RunTelemetry telemetry;
     private final TickerResolver tickerResolver;
     private final TickerNameResolver tickerNameResolver;
     private final NonJpHandling nonJpHandling;
@@ -246,7 +249,7 @@ public DailyRunner(
             RunDao runDao,
             ScanResultDao scanResultDao
     ) {
-        this(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, null);
+        this(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, null, null);
     }
 
 public DailyRunner(
@@ -257,6 +260,19 @@ public DailyRunner(
             RunDao runDao,
             ScanResultDao scanResultDao,
             EventMemoryService eventMemoryService
+    ) {
+        this(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, eventMemoryService, null);
+    }
+
+public DailyRunner(
+            Config config,
+            UniverseDao universeDao,
+            MetadataDao metadataDao,
+            BarDailyDao barDailyDao,
+            RunDao runDao,
+            ScanResultDao scanResultDao,
+            EventMemoryService eventMemoryService,
+            RunTelemetry telemetry
     ) {
         this.config = config;
         this.universeDao = universeDao;
@@ -326,8 +342,9 @@ public DailyRunner(
                 Math.max(5, config.getInt("ai.timeout_sec", config.getInt("watchlist.ai.timeout_sec", 180))),
                 Math.max(0, config.getInt("ai.max_tokens", config.getInt("watchlist.ai.max_tokens", 80)))
         );
+        this.telemetry = telemetry;
         NewsItemDao newsItemDao = new NewsItemDao(runDao.database());
-        this.watchlistNewsPipeline = new WatchlistNewsPipeline(config, legacyHttp, newsItemDao);
+        this.watchlistNewsPipeline = new WatchlistNewsPipeline(config, legacyHttp, newsItemDao, telemetry);
         this.tickerResolver = new TickerResolver(config.getString("watchlist.default_market_for_alpha", "US"));
         this.tickerNameResolver = new TickerNameResolver(config, legacyHttp);
         this.nonJpHandling = parseNonJpHandling(config.getString("watchlist.non_jp_handling", "PROCESS_SEPARATELY"));
@@ -357,10 +374,27 @@ public DailyRunOutcome run(
     ) throws Exception {
         Instant startedAt = Instant.now();
         long runId = runDao.startRun(RUN_MODE_DAILY, "JP all-market scanner");
+        if (telemetry != null) {
+            telemetry.setRunId(runId);
+        }
         Diagnostics diagnostics = new Diagnostics(runId, RUN_MODE_DAILY);
         captureConfigSnapshot(diagnostics);
         try {
-            MarketScanSnapshot scan = executeMarketScan(runId, forceUniverseUpdate, topNOverride, resetBatchCheckpoint);
+            telemetryStart(RunTelemetry.STEP_MARKET_FETCH);
+            MarketScanSnapshot scan;
+            try {
+                scan = executeMarketScan(runId, forceUniverseUpdate, topNOverride, resetBatchCheckpoint);
+                telemetryEnd(
+                        RunTelemetry.STEP_MARKET_FETCH,
+                        scan.universeSize,
+                        scan.stats.scanned,
+                        0,
+                        "partial_run=" + scan.partialRun
+                );
+            } catch (Exception e) {
+                telemetryEnd(RunTelemetry.STEP_MARKET_FETCH, 0, 0, 1, e.getClass().getSimpleName());
+                throw e;
+            }
             List<WatchlistAnalysis> watchlistCandidates = analyzeWatchlist(watchlist, scan.universe);
             addMarketDataSourceStats(diagnostics, runId, scan.stats);
             addWatchlistCoverageDiagnostics(diagnostics, watchlistCandidates);
@@ -398,6 +432,13 @@ public DailyRunOutcome run(
                             OWNER_FEATURE_RESOLVE
                     )
             );
+            Map<String, ModuleResult> moduleResults = buildModuleResults(
+                    watchlistCandidates,
+                    scan.marketReferenceCandidates,
+                    watchlist == null ? 0 : watchlist.size(),
+                    true
+            );
+            telemetryStart(RunTelemetry.STEP_HTML_RENDER);
             Path reportPath = reportBuilder.writeDailyReport(
                     reportDir,
                     startedAt,
@@ -415,8 +456,11 @@ public DailyRunOutcome run(
                     scanSummary,
                     scan.partialRun,
                     scan.partialRun ? "PARTIAL" : "SUCCESS",
-                    diagnostics
+                    diagnostics,
+                    moduleResults,
+                    null
             );
+            telemetryEnd(RunTelemetry.STEP_HTML_RENDER, watchlistCandidates.size(), 1, 0);
 
             String notes = String.format(
                     Locale.US,
@@ -470,6 +514,9 @@ public DailyRunOutcome run(
                     scan.partialRun
             );
         } catch (Exception e) {
+            if (telemetry != null) {
+                telemetry.incrementErrors(1);
+            }
             safeFinishFailed(runId, e);
             throw e;
         }
@@ -482,8 +529,25 @@ public DailyRunOutcome runMarketScanOnly(
     ) throws Exception {
         Instant startedAt = Instant.now();
         long runId = runDao.startRun(RUN_MODE_MARKET_SCAN, "JP all-market background scanner");
+        if (telemetry != null) {
+            telemetry.setRunId(runId);
+        }
         try {
-            MarketScanSnapshot scan = executeMarketScan(runId, forceUniverseUpdate, topNOverride, resetBatchCheckpoint);
+            telemetryStart(RunTelemetry.STEP_MARKET_FETCH);
+            MarketScanSnapshot scan;
+            try {
+                scan = executeMarketScan(runId, forceUniverseUpdate, topNOverride, resetBatchCheckpoint);
+                telemetryEnd(
+                        RunTelemetry.STEP_MARKET_FETCH,
+                        scan.universeSize,
+                        scan.stats.scanned,
+                        0,
+                        "partial_run=" + scan.partialRun
+                );
+            } catch (Exception e) {
+                telemetryEnd(RunTelemetry.STEP_MARKET_FETCH, 0, 0, 1, e.getClass().getSimpleName());
+                throw e;
+            }
             runDao.insertCandidates(runId, scan.topCandidates);
             String notes = String.format(
                     Locale.US,
@@ -525,6 +589,9 @@ public DailyRunOutcome runMarketScanOnly(
                     scan.partialRun
             );
         } catch (Exception e) {
+            if (telemetry != null) {
+                telemetry.incrementErrors(1);
+            }
             safeFinishFailed(runId, e);
             throw e;
         }
@@ -533,6 +600,9 @@ public DailyRunOutcome runMarketScanOnly(
 public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist) throws Exception {
         Instant startedAt = Instant.now();
         long runId = runDao.startRun(RUN_MODE_DAILY_REPORT, "watchlist report merged with latest market scan");
+        if (telemetry != null) {
+            telemetry.setRunId(runId);
+        }
         Diagnostics diagnostics = new Diagnostics(runId, RUN_MODE_DAILY_REPORT);
         captureConfigSnapshot(diagnostics);
         try {
@@ -602,6 +672,13 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
                     )
             );
             boolean marketPartial = "PARTIAL".equalsIgnoreCase(safeText(marketRun.status));
+            Map<String, ModuleResult> moduleResults = buildModuleResults(
+                    watchlistCandidates,
+                    marketReferenceCandidates,
+                    watchlist == null ? 0 : watchlist.size(),
+                    true
+            );
+            telemetryStart(RunTelemetry.STEP_HTML_RENDER);
             Path reportPath = reportBuilder.writeDailyReport(
                     reportDir,
                     startedAt,
@@ -619,8 +696,11 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
                     scanSummary,
                     marketPartial,
                     safeText(marketRun.status),
-                    diagnostics
+                    diagnostics,
+                    moduleResults,
+                    null
             );
+            telemetryEnd(RunTelemetry.STEP_HTML_RENDER, watchlistCandidates.size(), 1, 0);
 
             runDao.insertCandidates(runId, topCandidates);
             String notes = String.format(
@@ -665,6 +745,9 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
                     false
             );
         } catch (Exception e) {
+            if (telemetry != null) {
+                telemetry.incrementErrors(1);
+            }
             safeFinishFailed(runId, e);
             throw e;
         }
@@ -822,7 +905,12 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                 logPriceTrace(record.ticker, priceTrace);
 
                 LegacyWatchResult legacy = buildLegacyWatchResult(record, watchItem, yahooTicker, priceTrace, aiEnabled, aiAllMode);
+                telemetryStart(RunTelemetry.STEP_INDICATORS);
                 WatchlistScanResult technical = scanWatchRecord(record, watchItem, priceTrace);
+                long indicatorIn = priceTrace == null ? 0 : Math.max(0, priceTrace.barsCount);
+                long indicatorOut = technical != null && technical.indicatorReady ? 1 : 0;
+                long indicatorErr = technical == null ? 1 : (safeText(technical.error).isEmpty() ? 0 : 1);
+                telemetryEnd(RunTelemetry.STEP_INDICATORS, indicatorIn, indicatorOut, indicatorErr);
                 TickerNameResolver.ResolvedTickerName resolvedName =
                         tickerNameResolver.resolve(tickerSpec.normalized, tickerSpec.market.name());
                 String industryEn = normalizeUnknownText(industryService.industryOf(yahooTicker), "-");
@@ -948,6 +1036,23 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
         }
 
         out.sort(Comparator.comparingDouble((WatchlistAnalysis c) -> c.totalScore).reversed());
+        if (telemetry != null) {
+            int triggered = 0;
+            for (WatchlistAnalysis row : out) {
+                if (row != null && row.aiTriggered) {
+                    triggered++;
+                }
+            }
+            if (!aiEnabled) {
+                telemetry.setAiUsage(false, "ai.enabled=false");
+            } else if (out.isEmpty()) {
+                telemetry.setAiUsage(false, "no_watchlist_items");
+            } else if (triggered == 0) {
+                telemetry.setAiUsage(false, "no_watchlist_item_passed_ai_gate");
+            } else {
+                telemetry.setAiUsage(true, "triggered_items=" + triggered);
+            }
+        }
         return out;
     }
 
@@ -2890,6 +2995,122 @@ private EventMemoryService.MemoryInsights collectMemoryInsights(
             sources.add("yahoo");
         }
         return String.join(",", sources);
+    }
+
+    private void telemetryStart(String stepName) {
+        if (telemetry == null) {
+            return;
+        }
+        telemetry.startStep(stepName);
+    }
+
+    private void telemetryEnd(String stepName, long itemsIn, long itemsOut, long errorCount) {
+        telemetryEnd(stepName, itemsIn, itemsOut, errorCount, "");
+    }
+
+    private void telemetryEnd(
+            String stepName,
+            long itemsIn,
+            long itemsOut,
+            long errorCount,
+            String optionalNote
+    ) {
+        if (telemetry == null) {
+            return;
+        }
+        telemetry.endStep(stepName, itemsIn, itemsOut, errorCount, optionalNote);
+    }
+
+    private Map<String, ModuleResult> buildModuleResults(
+            List<WatchlistAnalysis> watchlistCandidates,
+            List<ScoredCandidate> marketReferenceCandidates,
+            int watchlistRequested,
+            boolean includeMailPlaceholder
+    ) {
+        Map<String, ModuleResult> modules = new LinkedHashMap<>();
+        List<WatchlistAnalysis> rows = watchlistCandidates == null ? List.of() : watchlistCandidates;
+        List<ScoredCandidate> topCards = marketReferenceCandidates == null ? List.of() : marketReferenceCandidates;
+        int needBars = Math.max(120, config.getInt("scan.min_history_bars", 180));
+
+        int indicatorReady = 0;
+        int maxBarsSeen = 0;
+        int newsTotal = 0;
+        int aiTriggered = 0;
+        for (WatchlistAnalysis row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (row.indicatorReady) {
+                indicatorReady++;
+            }
+            if (row.barsCount > maxBarsSeen) {
+                maxBarsSeen = row.barsCount;
+            }
+            newsTotal += Math.max(0, row.newsCount);
+            if (row.aiTriggered) {
+                aiTriggered++;
+            }
+        }
+
+        if (watchlistRequested <= 0) {
+            modules.put("indicators", ModuleResult.insufficient(
+                    "watchlist is empty",
+                    Map.of("watchlist_size", 0, "need_bars", needBars, "got_bars", 0)
+            ));
+        } else if (!rows.isEmpty() && indicatorReady == rows.size()) {
+            modules.put("indicators", ModuleResult.ok("indicator_ready=" + indicatorReady + "/" + rows.size()));
+        } else {
+            modules.put("indicators", ModuleResult.insufficient(
+                    "need " + needBars + " bars but got " + maxBarsSeen,
+                    Map.of(
+                            "need_bars", needBars,
+                            "got_bars", maxBarsSeen,
+                            "ready_count", indicatorReady,
+                            "watchlist_size", rows.size()
+                    )
+            ));
+        }
+
+        if (topCards.isEmpty()) {
+            modules.put("top5", ModuleResult.insufficient(
+                    "no market reference candidates",
+                    Map.of("candidate_count", 0)
+            ));
+        } else {
+            modules.put("top5", ModuleResult.ok("candidate_count=" + topCards.size()));
+        }
+
+        if (newsTotal <= 0) {
+            modules.put("news", ModuleResult.insufficient(
+                    "no relevant news matched",
+                    Map.of("watchlist_size", rows.size(), "news_items", newsTotal)
+            ));
+        } else {
+            modules.put("news", ModuleResult.ok("news_items=" + newsTotal));
+        }
+
+        if (!config.getBoolean("ai.enabled", true)) {
+            modules.put("ai", ModuleResult.disabled(
+                    "ai.enabled=false",
+                    Map.of("ai_enabled", false)
+            ));
+        } else if (aiTriggered <= 0) {
+            modules.put("ai", ModuleResult.insufficient(
+                    "no watchlist item passed AI gate",
+                    Map.of("watchlist_size", rows.size(), "triggered_count", aiTriggered)
+            ));
+        } else {
+            modules.put("ai", ModuleResult.ok("triggered_count=" + aiTriggered));
+        }
+
+        if (includeMailPlaceholder) {
+            modules.put("mail", ModuleResult.disabled(
+                    "mail status resolved after render",
+                    Map.of("phase", "pre_send")
+            ));
+        }
+
+        return modules;
     }
 
 private String safeText(String value) {

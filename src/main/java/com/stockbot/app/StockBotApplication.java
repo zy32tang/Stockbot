@@ -3,6 +3,8 @@ package com.stockbot.app;
 import com.stockbot.app.properties.EmailProperties;
 import com.stockbot.app.properties.MailProperties;
 import com.stockbot.app.properties.ScanProperties;
+import com.stockbot.core.ModuleResult;
+import com.stockbot.core.RunTelemetry;
 import com.stockbot.jp.backtest.BacktestRunner;
 import com.stockbot.jp.config.Config;
 import com.stockbot.jp.db.BarDailyDao;
@@ -53,11 +55,13 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -65,13 +69,24 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @SpringBootApplication
 public final class StockBotApplication implements ApplicationRunner {
+    private enum ExecutionMode {
+        ONCE,
+        DAEMON
+    }
+
+    private static final String RUN_MODE_ONCE = "ONCE";
+    private static final String RUN_MODE_DAEMON = "DAEMON";
+    private static final String TRIGGER_MANUAL = "manual";
+    private static final String TRIGGER_CRON = "cron";
+    private static final String RUN_SUMMARY_START = "<!-- RUN_SUMMARY_START -->";
+    private static final String RUN_SUMMARY_END = "<!-- RUN_SUMMARY_END -->";
     private static final Pattern REPORT_TS_PATTERN = Pattern.compile("jp_daily_(\\d{8}_\\d{6})\\.html", Pattern.CASE_INSENSITIVE);
     private static final Pattern INDICATOR_COVERAGE_PCT_PATTERN = Pattern.compile("INDICATOR_COVERAGE[^\\n%]*\\(([0-9]+(?:\\.[0-9]+)?)%\\)", Pattern.CASE_INSENSITIVE);
     private static volatile boolean LOG_ROUTE_INSTALLED = false;
@@ -154,17 +169,20 @@ public final class StockBotApplication implements ApplicationRunner {
                 System.err.println("ERROR: mode must be DAILY or BACKTEST (config app.mode).");
                 return 2;
             }
-
-            boolean noArgs = args == null || args.length == 0;
-            boolean explicitTestCmd = cmd.hasOption("test");
-            boolean explicitMaintenanceCmd = cmd.hasOption("reset-batch");
-            boolean scheduleEnabled = !explicitTestCmd
-                    && !explicitMaintenanceCmd
-                    && mode.equals("DAILY")
-                    && (noArgs || config.getBoolean("app.schedule.enabled", false));
-            if (scheduleEnabled && !mode.equals("DAILY")) {
-                System.err.println("ERROR: schedule requires DAILY mode (config app.mode=DAILY).");
+            if (cmd.hasOption("once") && cmd.hasOption("daemon")) {
+                System.err.println("ERROR: --once and --daemon cannot be used together.");
                 return 2;
+            }
+            ExecutionMode executionMode = resolveExecutionMode(cmd);
+            String trigger = resolveTrigger(cmd);
+            int maxRuns = parseOptionalPositiveInt(cmd, "max-runs");
+            int maxRuntimeMin = parseOptionalPositiveInt(cmd, "max-runtime-min");
+            if (executionMode == ExecutionMode.DAEMON && !mode.equals("DAILY")) {
+                System.err.println("ERROR: --daemon requires DAILY mode (config app.mode=DAILY).");
+                return 2;
+            }
+            if (executionMode == ExecutionMode.ONCE && (maxRuns > 0 || maxRuntimeMin > 0)) {
+                System.err.println("WARN: --max-runs/--max-runtime-min only apply in --daemon mode.");
             }
 
             Database database = databaseProvider.getObject();
@@ -180,11 +198,25 @@ public final class StockBotApplication implements ApplicationRunner {
                     + ", schema=" + database.schema());
             runDao.recoverDanglingRuns();
 
-            if (scheduleEnabled) {
-                return runSchedule(cmd, config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao);
+            if (executionMode == ExecutionMode.DAEMON) {
+                return runSchedule(
+                        cmd,
+                        config,
+                        universeDao,
+                        metadataDao,
+                        barDailyDao,
+                        runDao,
+                        scanResultDao,
+                        trigger,
+                        maxRuns,
+                        maxRuntimeMin
+                );
             }
 
-            return runOnce(cmd, mode, config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao);
+            return runOnce(cmd, mode, config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, trigger);
+        } catch (IllegalArgumentException e) {
+            System.err.println("ERROR: " + e.getMessage());
+            return 2;
         } catch (Exception e) {
             System.err.println("FATAL: " + e.getMessage());
             e.printStackTrace();
@@ -226,9 +258,14 @@ private int runSchedule(
             MetadataDao metadataDao,
             BarDailyDao barDailyDao,
             RunDao runDao,
-            ScanResultDao scanResultDao
+            ScanResultDao scanResultDao,
+            String trigger,
+            int maxRuns,
+            int maxRuntimeMin
     ) throws Exception {
         ZoneId zoneId = ZoneId.of("Asia/Tokyo");
+        Instant daemonStartedAt = Instant.now();
+        AtomicInteger completedRuns = new AtomicInteger(0);
         Scheduler scheduler = StdSchedulerFactory.getDefaultScheduler();
         SchedulerContext schedulerContext = scheduler.getContext();
         schedulerContext.put(
@@ -242,7 +279,10 @@ private int runSchedule(
                         barDailyDao,
                         runDao,
                         scanResultDao,
-                        zoneId
+                        zoneId,
+                        RUN_MODE_DAEMON,
+                        trigger,
+                        completedRuns
                 )
         );
 
@@ -269,9 +309,14 @@ private int runSchedule(
         scheduler.scheduleJob(job, triggers, true);
 
         scheduler.start();
-        System.out.println("Quartz scheduler started. zone=Asia/Tokyo, triggers=11:30,15:00");
+        System.out.println(String.format(
+                Locale.US,
+                "DAEMON 模式已启动。zone=Asia/Tokyo, triggers=11:30,15:00, trigger=%s, max_runs=%s, max_runtime_min=%s",
+                safe(trigger),
+                maxRuns > 0 ? Integer.toString(maxRuns) : "unlimited",
+                maxRuntimeMin > 0 ? Integer.toString(maxRuntimeMin) : "unlimited"
+        ));
 
-        CountDownLatch keepAlive = new CountDownLatch(1);
         Thread shutdownHook = new Thread(() -> {
             try {
                 if (!scheduler.isShutdown()) {
@@ -279,15 +324,41 @@ private int runSchedule(
                 }
             } catch (Exception e) {
                 System.err.println("WARN: quartz shutdown failed: " + e.getMessage());
-            } finally {
-                keepAlive.countDown();
             }
         }, "stockbot-quartz-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHook);
 
         try {
-            keepAlive.await();
-            return 0;
+            while (true) {
+                if (scheduler.isShutdown()) {
+                    return 0;
+                }
+                int finished = completedRuns.get();
+                if (maxRuns > 0 && finished >= maxRuns) {
+                    System.out.println(String.format(
+                            Locale.US,
+                            "DAEMON safety valve hit: max_runs=%d, completed_runs=%d",
+                            maxRuns,
+                            finished
+                    ));
+                    scheduler.shutdown(true);
+                    return 0;
+                }
+                if (maxRuntimeMin > 0) {
+                    long elapsedMin = Duration.between(daemonStartedAt, Instant.now()).toMinutes();
+                    if (elapsedMin >= maxRuntimeMin) {
+                        System.out.println(String.format(
+                                Locale.US,
+                                "DAEMON safety valve hit: max_runtime_min=%d, elapsed_min=%d",
+                                maxRuntimeMin,
+                                elapsedMin
+                        ));
+                        scheduler.shutdown(true);
+                        return 0;
+                    }
+                }
+                Thread.sleep(1000L);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return 130;
@@ -311,7 +382,8 @@ private int runOnce(
             MetadataDao metadataDao,
             BarDailyDao barDailyDao,
             RunDao runDao,
-            ScanResultDao scanResultDao
+            ScanResultDao scanResultDao,
+            String trigger
     ) throws Exception {
         if (mode.equals("DAILY")) {
             if (cmd.hasOption("reset-batch")) {
@@ -326,7 +398,9 @@ private int runOnce(
                         barDailyDao,
                         runDao,
                         scanResultDao,
-                        true
+                        true,
+                        RUN_MODE_ONCE,
+                        trigger
                 );
             }
             ZoneId zoneId = ZoneId.of(config.getString("schedule.zone", "Asia/Tokyo"));
@@ -338,7 +412,9 @@ private int runOnce(
                     barDailyDao,
                     runDao,
                     scanResultDao,
-                    zoneId
+                    zoneId,
+                    RUN_MODE_ONCE,
+                    trigger
             );
         }
         return runBacktest(config, barDailyDao, runDao);
@@ -352,35 +428,85 @@ private int runScheduledMergeReport(
             BarDailyDao barDailyDao,
             RunDao runDao,
             ScanResultDao scanResultDao,
-            ZoneId zoneId
+            ZoneId zoneId,
+            String runMode,
+            String trigger
     ) throws Exception {
-        logRuntimeConfigSummary(config);
-        DailyRunner dailyRunner = new DailyRunner(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, eventMemoryService);
-        boolean forceUniverse = config.getBoolean("app.background_scan.force_universe_update", false);
-        Integer topN = null;
-        int topOverride = config.getInt("app.background_scan.top_n_override", 0);
-        if (topOverride > 0) {
-            topN = topOverride;
-        }
+        RunTelemetry telemetry = new RunTelemetry(0L, safe(runMode), normalizeTrigger(trigger), Instant.now());
+        Map<String, ModuleResult> moduleResults = new LinkedHashMap<>();
+        DailyRunOutcome reportOutcome = null;
+        int exitCode = 0;
+        try {
+            logRuntimeConfigSummary(config);
+            DailyRunner dailyRunner = new DailyRunner(
+                    config,
+                    universeDao,
+                    metadataDao,
+                    barDailyDao,
+                    runDao,
+                    scanResultDao,
+                    eventMemoryService,
+                    telemetry
+            );
+            boolean forceUniverse = config.getBoolean("app.background_scan.force_universe_update", false);
+            Integer topN = null;
+            int topOverride = config.getInt("app.background_scan.top_n_override", 0);
+            if (topOverride > 0) {
+                topN = topOverride;
+            }
 
-        Optional<RunRow> latestMarket = runDao.findLatestMarketScanRun();
-        if (needsFreshMarketScan(latestMarket, zoneId)) {
-            System.out.println("Scheduled event: no fresh market scan for today, running market scan first.");
-            DailyRunOutcome seeded = dailyRunner.runMarketScanOnly(forceUniverse, topN, false);
-            System.out.println("Scheduled pre-scan completed. run_id=" + seeded.runId
-                    + ", batch_progress=" + seeded.processedSegments + "/" + seeded.totalSegments
-                    + ", partial_run=" + seeded.partialRun);
-        }
+            Optional<RunRow> latestMarket = runDao.findLatestMarketScanRun();
+            if (needsFreshMarketScan(latestMarket, zoneId)) {
+                System.out.println("Scheduled event: no fresh market scan for today, running market scan first.");
+                DailyRunOutcome seeded = dailyRunner.runMarketScanOnly(forceUniverse, topN, false);
+                System.out.println("Scheduled pre-scan completed. run_id=" + seeded.runId
+                        + ", batch_progress=" + seeded.processedSegments + "/" + seeded.totalSegments
+                        + ", partial_run=" + seeded.partialRun);
+            }
 
-        List<String> watchlist = loadWatchlist(config);
-        DailyRunOutcome reportOutcome = dailyRunner.runWatchlistReportFromLatestMarket(watchlist);
-        sendDailyMailIfNeeded(cmd, config, reportOutcome);
-        System.out.println("SCHEDULED_REPORT completed. run_id=" + reportOutcome.runId
-                + ", watchlist=" + reportOutcome.watchlistCandidates.size()
-                + ", market_ref=" + reportOutcome.marketReferenceCandidates.size());
-        logDailySections(reportOutcome, config);
-        System.out.println("report=" + reportOutcome.reportPath.toAbsolutePath());
-        return 0;
+            List<String> watchlist = loadWatchlist(config);
+            reportOutcome = dailyRunner.runWatchlistReportFromLatestMarket(watchlist);
+            telemetry.setRunId(reportOutcome.runId);
+            moduleResults.putAll(buildModuleResults(reportOutcome));
+
+            MailDispatchResult mailResult = sendDailyMailIfNeeded(cmd, config, reportOutcome, telemetry);
+            moduleResults.put("mail", mailResult.moduleResult);
+            exitCode = mailResult.exitCode;
+
+            System.out.println("SCHEDULED_REPORT completed. run_id=" + reportOutcome.runId
+                    + ", watchlist=" + reportOutcome.watchlistCandidates.size()
+                    + ", market_ref=" + reportOutcome.marketReferenceCandidates.size());
+            logDailySections(reportOutcome, config);
+            if (reportOutcome.reportPath != null) {
+                System.out.println("report=" + reportOutcome.reportPath.toAbsolutePath());
+            }
+            return exitCode;
+        } catch (Exception e) {
+            telemetry.incrementErrors(1);
+            moduleResults.putIfAbsent(
+                    "mail",
+                    ModuleResult.error(
+                            "mail_not_attempted_due_to_run_failure",
+                            Map.of("error_class", e.getClass().getSimpleName())
+                    )
+            );
+            throw e;
+        } finally {
+            telemetry.finish();
+            if (reportOutcome != null) {
+                telemetry.setRunId(reportOutcome.runId);
+            }
+            String summary = telemetry.getSummary();
+            if (reportOutcome != null && reportOutcome.reportPath != null) {
+                try {
+                    appendRunSummaryToReport(reportOutcome.reportPath, summary);
+                } catch (Exception e) {
+                    System.err.println("WARN: failed to append run summary to report: " + e.getMessage());
+                    telemetry.incrementErrors(1);
+                }
+            }
+            logRunSummary(telemetry, moduleResults);
+        }
     }
 
 private boolean needsFreshMarketScan(Optional<RunRow> latestMarket, ZoneId zoneId) {
@@ -445,59 +571,111 @@ private int sendTestDailyReportEmail(
             BarDailyDao barDailyDao,
             RunDao runDao,
             ScanResultDao scanResultDao,
-            boolean forceSend
+            boolean forceSend,
+            String runMode,
+            String trigger
     ) throws Exception {
-        logRuntimeConfigSummary(config);
-        boolean sendEmail = emailProperties == null || emailProperties.isEnabled();
-        if (forceSend) {
-            sendEmail = true;
-        }
-        if (!sendEmail) {
-            System.out.println("Email disabled. skip test DAILY report.");
-            return 0;
-        }
-
-        DailyRunner dailyRunner = new DailyRunner(config, universeDao, metadataDao, barDailyDao, runDao, scanResultDao, eventMemoryService);
-        List<String> watchlist = loadWatchlist(config);
-        DailyRunOutcome outcome;
+        RunTelemetry telemetry = new RunTelemetry(0L, safe(runMode), normalizeTrigger(trigger), Instant.now());
+        Map<String, ModuleResult> moduleResults = new LinkedHashMap<>();
+        DailyRunOutcome outcome = null;
         try {
-            outcome = dailyRunner.runWatchlistReportFromLatestMarket(watchlist);
-        } catch (Exception e) {
-            System.err.println("WARN: failed to rebuild test report from existing market scan: " + e.getMessage());
-            return 2;
-        }
-        logDailySections(outcome, config);
+            logRuntimeConfigSummary(config);
+            boolean sendEmail = emailProperties == null || emailProperties.isEnabled();
+            if (forceSend) {
+                sendEmail = true;
+            }
+            if (!sendEmail) {
+                moduleResults.put("mail", ModuleResult.disabled("email.enabled=false", Map.of("enabled", false)));
+                return 0;
+            }
 
-        Path reportPath = outcome.reportPath == null ? null : outcome.reportPath.toAbsolutePath().normalize();
-        if (reportPath == null || !Files.exists(reportPath)) {
-            System.err.println("WARN: report file missing: " + reportPath);
-            return 2;
-        }
+            DailyRunner dailyRunner = new DailyRunner(
+                    config,
+                    universeDao,
+                    metadataDao,
+                    barDailyDao,
+                    runDao,
+                    scanResultDao,
+                    eventMemoryService,
+                    telemetry
+            );
+            List<String> watchlist = loadWatchlist(config);
+            try {
+                outcome = dailyRunner.runWatchlistReportFromLatestMarket(watchlist);
+            } catch (Exception e) {
+                telemetry.incrementErrors(1);
+                System.err.println("WARN: failed to rebuild test report from existing market scan: " + e.getMessage());
+                return 2;
+            }
+            telemetry.setRunId(outcome.runId);
+            moduleResults.putAll(buildModuleResults(outcome));
+            logDailySections(outcome, config);
 
-        Mailer mailer = new Mailer();
-        Mailer.Settings settings = mailer.loadSettings(config, emailProperties, mailProperties);
-        settings.enabled = true;
-        ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
-        Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
-        String subject = buildTestDailyReportSubject(
-                settings.subjectPrefix,
-                runAt,
-                zoneId,
-                outcome.marketReferenceCandidates.size(),
-                outcome.runId
-        );
-        String text = "";
-        String rawHtml = Files.readString(reportPath, StandardCharsets.UTF_8);
-        List<Path> attachments = collectReportAttachments(rawHtml, reportPath);
-        String html = htmlPostProcessor.cleanDocument(rawHtml, true);
-        boolean sent = mailer.send(settings, subject, text, html, attachments);
-        if (sent) {
-            String modeLabel = settings.dryRun ? "Mail dry-run completed for " : "Email sent to ";
-            System.out.println(modeLabel + String.join(",", settings.to) + " from run_id=" + outcome.runId);
-        } else {
-            System.out.println("Report generated, but email failed (mail.fail_fast=false). run_id=" + outcome.runId);
+            Path reportPath = outcome.reportPath == null ? null : outcome.reportPath.toAbsolutePath().normalize();
+            if (reportPath == null || !Files.exists(reportPath)) {
+                telemetry.incrementErrors(1);
+                System.err.println("WARN: report file missing: " + reportPath);
+                return 2;
+            }
+
+            Mailer mailer = new Mailer();
+            Mailer.Settings settings = mailer.loadSettings(config, emailProperties, mailProperties);
+            settings.enabled = true;
+            ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
+            Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
+            String subject = buildTestDailyReportSubject(
+                    settings.subjectPrefix,
+                    runAt,
+                    zoneId,
+                    outcome.marketReferenceCandidates.size(),
+                    outcome.runId
+            );
+            String text = "";
+            String rawHtml = Files.readString(reportPath, StandardCharsets.UTF_8);
+            List<Path> attachments = collectReportAttachments(rawHtml, reportPath);
+            String html = htmlPostProcessor.cleanDocument(rawHtml, true);
+            if (telemetry != null) {
+                telemetry.startStep(RunTelemetry.STEP_MAIL_SEND);
+            }
+            String htmlWithSummary = appendRunSummaryBlock(html, telemetry.getSummary());
+            boolean sent;
+            try {
+                sent = mailer.send(settings, subject, text, htmlWithSummary, attachments);
+                telemetry.endStep(
+                        RunTelemetry.STEP_MAIL_SEND,
+                        1,
+                        sent ? 1 : 0,
+                        sent ? 0 : 1,
+                        settings.dryRun ? "dry_run=true" : ""
+                );
+            } catch (Exception e) {
+                telemetry.endStep(RunTelemetry.STEP_MAIL_SEND, 1, 0, 1, e.getClass().getSimpleName());
+                throw e;
+            }
+            moduleResults.put(
+                    "mail",
+                    sent
+                            ? ModuleResult.ok("mail_sent")
+                            : ModuleResult.error("mail_send_failed", Map.of("fail_fast", settings.failFast))
+            );
+            if (sent) {
+                String modeLabel = settings.dryRun ? "Mail dry-run completed for " : "Email sent to ";
+                System.out.println(modeLabel + String.join(",", settings.to) + " from run_id=" + outcome.runId);
+            } else {
+                System.out.println("Report generated, but email failed (mail.fail_fast=false). run_id=" + outcome.runId);
+            }
+            return 0;
+        } finally {
+            telemetry.finish();
+            if (outcome != null && outcome.reportPath != null) {
+                try {
+                    appendRunSummaryToReport(outcome.reportPath, telemetry.getSummary());
+                } catch (Exception e) {
+                    System.err.println("WARN: failed to append run summary to report: " + e.getMessage());
+                }
+            }
+            logRunSummary(telemetry, moduleResults);
         }
-        return 0;
     }
 
     static String buildTestDailyReportSubject(
@@ -518,10 +696,22 @@ private int sendTestDailyReportEmail(
         );
     }
 
-    private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutcome outcome) throws Exception {
+    private MailDispatchResult sendDailyMailIfNeeded(
+            CommandLine cmd,
+            Config config,
+            DailyRunOutcome outcome,
+            RunTelemetry telemetry
+    ) throws Exception {
         boolean sendEmail = emailProperties == null || emailProperties.isEnabled();
         if (!sendEmail) {
-            return;
+            if (telemetry != null) {
+                telemetry.startStep(RunTelemetry.STEP_MAIL_SEND);
+                telemetry.endStep(RunTelemetry.STEP_MAIL_SEND, 1, 0, 0, "mail_disabled=true");
+            }
+            return new MailDispatchResult(
+                    0,
+                    ModuleResult.disabled("email.enabled=false", Map.of("enabled", false))
+            );
         }
 
         Mailer mailer = new Mailer();
@@ -540,6 +730,14 @@ private int sendTestDailyReportEmail(
             ReportBuilder.RunType runType = ReportBuilder.detectRunType(outcome.startedAt, zoneId);
             text = reportBuilder.buildNoviceActionSummary(indicatorCoveragePct, runType, outcome.watchlistCandidates);
         }
+        if (telemetry != null) {
+            telemetry.startStep(RunTelemetry.STEP_MAIL_SEND);
+        }
+        String summaryForMail = telemetry == null ? "" : telemetry.getSummary();
+        String htmlWithSummary = noviceMode ? "" : appendRunSummaryBlock(html, summaryForMail);
+        String textWithSummary = noviceMode
+                ? (text + "\n\nRun Summary\n" + summaryForMail)
+                : text;
 
         String subject = String.format(
                 Locale.US,
@@ -548,13 +746,34 @@ private int sendTestDailyReportEmail(
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(outcome.startedAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size()
         );
-        boolean sent = mailer.send(settings, subject, text, html, attachments);
+        boolean sent;
+        try {
+            sent = mailer.send(settings, subject, textWithSummary, htmlWithSummary, attachments);
+            if (telemetry != null) {
+                telemetry.endStep(
+                        RunTelemetry.STEP_MAIL_SEND,
+                        1,
+                        sent ? 1 : 0,
+                        sent ? 0 : 1,
+                        settings.dryRun ? "dry_run=true" : ""
+                );
+            }
+        } catch (Exception e) {
+            if (telemetry != null) {
+                telemetry.endStep(RunTelemetry.STEP_MAIL_SEND, 1, 0, 1, e.getClass().getSimpleName());
+            }
+            throw e;
+        }
         if (sent) {
             String modeLabel = settings.dryRun ? "Mail dry-run completed for " : "Email sent to ";
-            System.out.println(modeLabel + String.join(",", settings.to) + (noviceMode ? " [novice]" : ""));
+            System.out.println(modeLabel + String.join(",", settings.to) + (noviceMode ? " [novice]" : "") + " run_id=" + outcome.runId);
         } else {
-            System.out.println("Report generated, but email failed (mail.fail_fast=false).");
+            System.out.println("Report generated, but email failed (mail.fail_fast=false). run_id=" + outcome.runId);
         }
+        ModuleResult mailModule = sent
+                ? ModuleResult.ok("mail_sent")
+                : ModuleResult.error("mail_send_failed", Map.of("fail_fast", settings.failFast));
+        return new MailDispatchResult(0, mailModule);
     }
 
     private void logRuntimeConfigSummary(Config config) {
@@ -700,6 +919,210 @@ private List<Path> collectReportAttachments(String html, Path reportPath) {
         }
     }
 
+    private ExecutionMode resolveExecutionMode(CommandLine cmd) {
+        if (cmd != null && cmd.hasOption("daemon")) {
+            return ExecutionMode.DAEMON;
+        }
+        return ExecutionMode.ONCE;
+    }
+
+    private String resolveTrigger(CommandLine cmd) {
+        String raw = cmd == null ? TRIGGER_MANUAL : cmd.getOptionValue("trigger", TRIGGER_MANUAL);
+        String normalized = normalizeTrigger(raw);
+        if (!TRIGGER_MANUAL.equals(normalized) && !TRIGGER_CRON.equals(normalized)) {
+            throw new IllegalArgumentException("trigger must be manual or cron");
+        }
+        return normalized;
+    }
+
+    private String normalizeTrigger(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return TRIGGER_MANUAL;
+        }
+        return normalized;
+    }
+
+    private int parseOptionalPositiveInt(CommandLine cmd, String option) {
+        if (cmd == null || option == null || !cmd.hasOption(option)) {
+            return 0;
+        }
+        String raw = cmd.getOptionValue(option, "").trim();
+        if (raw.isEmpty()) {
+            return 0;
+        }
+        try {
+            int parsed = Integer.parseInt(raw);
+            if (parsed <= 0) {
+                throw new IllegalArgumentException("--" + option + " must be a positive integer");
+            }
+            return parsed;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("--" + option + " must be a positive integer");
+        }
+    }
+
+    private Map<String, ModuleResult> buildModuleResults(DailyRunOutcome outcome) {
+        Map<String, ModuleResult> results = new LinkedHashMap<>();
+        if (outcome == null) {
+            results.put("indicators", ModuleResult.error("missing outcome", Map.of("outcome_present", false)));
+            results.put("top5", ModuleResult.error("missing outcome", Map.of("outcome_present", false)));
+            results.put("news", ModuleResult.error("missing outcome", Map.of("outcome_present", false)));
+            results.put("ai", ModuleResult.error("missing outcome", Map.of("outcome_present", false)));
+            return results;
+        }
+
+        List<WatchlistAnalysis> watchRows = outcome.watchlistCandidates == null ? List.of() : outcome.watchlistCandidates;
+        int needBars = Math.max(60, config.getInt("scan.min_history_bars", 180));
+        int readyCount = 0;
+        int maxBars = 0;
+        String sampleTicker = "";
+        int newsTotal = 0;
+        int aiTriggered = 0;
+        for (WatchlistAnalysis row : watchRows) {
+            if (row == null) {
+                continue;
+            }
+            if (row.indicatorReady) {
+                readyCount++;
+            }
+            if (row.barsCount > maxBars) {
+                maxBars = row.barsCount;
+                sampleTicker = safe(row.ticker);
+            }
+            newsTotal += Math.max(0, row.newsCount);
+            if (row.aiTriggered) {
+                aiTriggered++;
+            }
+        }
+
+        if (watchRows.isEmpty()) {
+            results.put("indicators", ModuleResult.insufficient(
+                    "need " + needBars + " bars but got 0",
+                    Map.of("need_bars", needBars, "got_bars", 0, "watchlist_size", 0)
+            ));
+        } else if (readyCount == watchRows.size()) {
+            results.put("indicators", ModuleResult.ok("indicator_ready=" + readyCount + "/" + watchRows.size()));
+        } else {
+            Map<String, Object> evidence = new LinkedHashMap<>();
+            evidence.put("need_bars", needBars);
+            evidence.put("got_bars", maxBars);
+            evidence.put("ready_count", readyCount);
+            evidence.put("watchlist_size", watchRows.size());
+            if (!sampleTicker.isEmpty()) {
+                evidence.put("symbol", sampleTicker);
+            }
+            results.put("indicators", ModuleResult.insufficient(
+                    "need " + needBars + " bars but got " + maxBars,
+                    evidence
+            ));
+        }
+
+        int topCount = outcome.marketReferenceCandidates == null ? 0 : outcome.marketReferenceCandidates.size();
+        if (topCount > 0) {
+            results.put("top5", ModuleResult.ok("candidate_count=" + topCount));
+        } else {
+            results.put("top5", ModuleResult.insufficient(
+                    "no market reference candidates",
+                    Map.of("candidate_count", 0)
+            ));
+        }
+
+        if (newsTotal > 0) {
+            results.put("news", ModuleResult.ok("news_items=" + newsTotal));
+        } else {
+            results.put("news", ModuleResult.insufficient(
+                    "no relevant news matched",
+                    Map.of("watchlist_size", watchRows.size(), "news_items", 0)
+            ));
+        }
+
+        if (!config.getBoolean("ai.enabled", true)) {
+            results.put("ai", ModuleResult.disabled("ai.enabled=false", Map.of("ai_enabled", false)));
+        } else if (aiTriggered > 0) {
+            results.put("ai", ModuleResult.ok("triggered_count=" + aiTriggered));
+        } else {
+            results.put("ai", ModuleResult.insufficient(
+                    "no watchlist item passed AI gate",
+                    Map.of("watchlist_size", watchRows.size(), "triggered_count", 0)
+            ));
+        }
+        return results;
+    }
+
+    private void appendRunSummaryToReport(Path reportPath, String summary) throws Exception {
+        if (reportPath == null || !Files.exists(reportPath)) {
+            return;
+        }
+        String rawHtml = Files.readString(reportPath, StandardCharsets.UTF_8);
+        String merged = appendRunSummaryBlock(rawHtml, summary);
+        Files.writeString(reportPath, merged, StandardCharsets.UTF_8);
+    }
+
+    private String appendRunSummaryBlock(String html, String summary) {
+        String base = html == null ? "" : html;
+        String safeSummary = summary == null ? "" : summary.trim();
+        if (safeSummary.isEmpty()) {
+            return base;
+        }
+        String cleaned = base.replaceAll("(?s)<!-- RUN_SUMMARY_START -->.*?<!-- RUN_SUMMARY_END -->", "");
+        String block = RUN_SUMMARY_START
+                + "<div class=\"card\"><h3 style=\"margin-top:0\">Run Summary</h3><pre class=\"small\" style=\"white-space:pre-wrap\">"
+                + escapeHtml(safeSummary)
+                + "</pre></div>"
+                + RUN_SUMMARY_END;
+        if (cleaned.toLowerCase(Locale.ROOT).contains("</body>")) {
+            return cleaned.replaceFirst("(?i)</body>", Matcher.quoteReplacement(block + "</body>"));
+        }
+        return cleaned + block;
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(value.length() + 32);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '&') {
+                sb.append("&amp;");
+            } else if (c == '<') {
+                sb.append("&lt;");
+            } else if (c == '>') {
+                sb.append("&gt;");
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private void logRunSummary(RunTelemetry telemetry, Map<String, ModuleResult> moduleResults) {
+        if (telemetry == null) {
+            return;
+        }
+        String summary = telemetry.getSummary();
+        System.out.println("RUN_SUMMARY run_id=" + telemetry.runId());
+        System.out.println(summary);
+        if (moduleResults != null && !moduleResults.isEmpty()) {
+            for (Map.Entry<String, ModuleResult> entry : moduleResults.entrySet()) {
+                ModuleResult result = entry.getValue();
+                if (result == null) {
+                    continue;
+                }
+                System.out.println(String.format(
+                        Locale.US,
+                        "MODULE_STATUS run_id=%d module=%s status=%s reason=%s evidence=%s",
+                        telemetry.runId(),
+                        safe(entry.getKey()),
+                        result.status(),
+                        safe(result.reason()),
+                        safe(new LinkedHashMap<>(result.evidence()).toString())
+                ));
+            }
+        }
+    }
+
 private String safe(String value) {
         return value == null ? "" : value;
     }
@@ -714,6 +1137,11 @@ private String trimForLog(String value, int maxLen) {
 
 private Options buildOptions() {
         Options options = new Options();
+        options.addOption(Option.builder().longOpt("once").desc("run once and exit (default)").build());
+        options.addOption(Option.builder().longOpt("daemon").desc("run with Quartz schedule loop").build());
+        options.addOption(Option.builder().longOpt("trigger").hasArg().argName("manual|cron").desc("run trigger source (default: manual)").build());
+        options.addOption(Option.builder().longOpt("max-runs").hasArg().argName("N").desc("daemon safety valve: stop after N completed runs").build());
+        options.addOption(Option.builder().longOpt("max-runtime-min").hasArg().argName("M").desc("daemon safety valve: stop after M minutes").build());
         options.addOption(Option.builder().longOpt("reset-batch").desc("clear batch checkpoint, then exit").build());
         options.addOption(Option.builder().longOpt("test").desc("rebuild DAILY report from latest market scan data and send test email (no full-market rescan)").build());
         options.addOption(Option.builder().longOpt("novice").desc("send novice action-only mail body (max 10 lines)").build());
@@ -729,6 +1157,18 @@ private String resolveMode(Config config) {
         return normalizeMode(config.getString("app.mode", "DAILY"));
     }
 
+    private static final class MailDispatchResult {
+        final int exitCode;
+        final ModuleResult moduleResult;
+
+        private MailDispatchResult(int exitCode, ModuleResult moduleResult) {
+            this.exitCode = exitCode;
+            this.moduleResult = moduleResult == null
+                    ? ModuleResult.error("mail_result_missing", Map.of())
+                    : moduleResult;
+        }
+    }
+
     private static final class DailyReportJobContext {
         final StockBotApplication app;
         final CommandLine cmd;
@@ -739,6 +1179,9 @@ private String resolveMode(Config config) {
         final RunDao runDao;
         final ScanResultDao scanResultDao;
         final ZoneId zoneId;
+        final String runMode;
+        final String trigger;
+        final AtomicInteger completedRuns;
 
         private DailyReportJobContext(
                 StockBotApplication app,
@@ -749,7 +1192,10 @@ private String resolveMode(Config config) {
                 BarDailyDao barDailyDao,
                 RunDao runDao,
                 ScanResultDao scanResultDao,
-                ZoneId zoneId
+                ZoneId zoneId,
+                String runMode,
+                String trigger,
+                AtomicInteger completedRuns
         ) {
             this.app = app;
             this.cmd = cmd;
@@ -760,6 +1206,9 @@ private String resolveMode(Config config) {
             this.runDao = runDao;
             this.scanResultDao = scanResultDao;
             this.zoneId = zoneId;
+            this.runMode = runMode;
+            this.trigger = trigger;
+            this.completedRuns = completedRuns == null ? new AtomicInteger(0) : completedRuns;
         }
     }
 
@@ -781,16 +1230,23 @@ private String resolveMode(Config config) {
                     throw new JobExecutionException("missing DailyReportJobContext");
                 }
                 DailyReportJobContext jobContext = (DailyReportJobContext) raw;
-                int exit = jobContext.app.runScheduledMergeReport(
-                        jobContext.cmd,
-                        jobContext.config,
-                        jobContext.universeDao,
-                        jobContext.metadataDao,
-                        jobContext.barDailyDao,
-                        jobContext.runDao,
-                        jobContext.scanResultDao,
-                        jobContext.zoneId
-                );
+                int exit;
+                try {
+                    exit = jobContext.app.runScheduledMergeReport(
+                            jobContext.cmd,
+                            jobContext.config,
+                            jobContext.universeDao,
+                            jobContext.metadataDao,
+                            jobContext.barDailyDao,
+                            jobContext.runDao,
+                            jobContext.scanResultDao,
+                            jobContext.zoneId,
+                            jobContext.runMode,
+                            jobContext.trigger
+                    );
+                } finally {
+                    jobContext.completedRuns.incrementAndGet();
+                }
                 if (exit != 0) {
                     throw new JobExecutionException("scheduled report failed, exit=" + exit, false);
                 }

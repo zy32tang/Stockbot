@@ -48,10 +48,17 @@ public class MacroService {
         long now = System.currentTimeMillis();
         if (now - cacheAtMillis < CACHE_TTL_MS) return cachedScore;
 
-        double score = computeMacroScore();
-        cachedScore = score;
-        cacheAtMillis = now;
-        return score;
+        try {
+            double score = computeMacroScore();
+            cachedScore = score;
+            cacheAtMillis = now;
+            return score;
+        } catch (RuntimeException e) {
+            // Fall back to last cached value (default 50.0) and throttle retries within TTL.
+            cacheAtMillis = now;
+            System.err.println("WARN: macro score fallback to cached value due to market data error: " + e.getMessage());
+            return cachedScore;
+        }
     }
 
 /**

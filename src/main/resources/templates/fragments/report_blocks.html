@@ -40,6 +40,14 @@
         Size cap single <span th:text="${view.actionAdvice.singleMaxPct}">5.0</span>% / total <span th:text="${view.actionAdvice.totalMaxPct}">50.0</span>%
       </div>
     </div>
+    <details class="card" th:if="${view.moduleStatuses != null and !#lists.isEmpty(view.moduleStatuses)}">
+      <summary class="small">模块状态（点击展开）</summary>
+      <div class="small" th:each="m : ${view.moduleStatuses}">
+        <div><b th:text="${m.module}">module</b>: <span th:text="${m.status}">OK</span></div>
+        <div th:text="${'reason: ' + m.reason}">reason</div>
+        <div th:text="${'evidence: ' + m.evidence}">evidence</div>
+      </div>
+    </details>
   </th:block>
 
   <th:block th:fragment="watchlist(view)">
@@ -112,6 +120,10 @@
         <div th:text="${'coverage_scope=' + view.diagnostics.coverageScope + ' | coverage_source=' + view.diagnostics.coverageSource}"></div>
       </div>
     </details>
+    <div class="card" th:if="${view.runSummaryText != null and !#strings.isEmpty(view.runSummaryText)}">
+      <h3 style="margin-top:0">Run Summary</h3>
+      <pre class="small" style="white-space:pre-wrap" th:text="${view.runSummaryText}"></pre>
+    </div>
   </th:block>
 </body>
 </html>
