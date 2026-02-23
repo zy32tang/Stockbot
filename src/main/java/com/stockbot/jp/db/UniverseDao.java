@@ -1,10 +1,12 @@
 package com.stockbot.jp.db;
 
+import com.stockbot.jp.db.mybatis.MyBatisSupport;
+import com.stockbot.jp.db.mybatis.UniverseMapper;
+import com.stockbot.jp.db.mybatis.UniverseRecordRow;
 import com.stockbot.jp.model.UniverseRecord;
+import org.apache.ibatis.session.SqlSession;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -26,32 +28,17 @@ public final class UniverseDao {
             return 0;
         }
 
-        String deactivateSql = "UPDATE universe SET active=FALSE, updated_at=? WHERE source=?";
-        String upsertSql = "INSERT INTO universe(ticker, code, name, market, active, source, updated_at) " +
-                "VALUES(?, ?, ?, ?, TRUE, ?, ?) " +
-                "ON CONFLICT(ticker) DO UPDATE SET " +
-                "code=excluded.code, name=excluded.name, market=excluded.market, active=TRUE, " +
-                "source=excluded.source, updated_at=excluded.updated_at";
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-
-        try (Connection conn = database.connect()) {
+        try (Connection conn = database.connect();
+             SqlSession session = MyBatisSupport.openSession(conn)) {
             conn.setAutoCommit(false);
-            try (PreparedStatement deactivate = conn.prepareStatement(deactivateSql);
-                 PreparedStatement upsert = conn.prepareStatement(upsertSql)) {
-                deactivate.setObject(1, now);
-                deactivate.setString(2, source);
-                deactivate.executeUpdate();
-
-                for (UniverseRecord record : records) {
-                    upsert.setString(1, record.ticker);
-                    upsert.setString(2, record.code);
-                    upsert.setString(3, record.name);
-                    upsert.setString(4, record.market);
-                    upsert.setString(5, source);
-                    upsert.setObject(6, now);
-                    upsert.addBatch();
+            UniverseMapper mapper = session.getMapper(UniverseMapper.class);
+            mapper.deactivateBySource(source, now);
+            for (UniverseRecord record : records) {
+                if (record == null) {
+                    continue;
                 }
-                upsert.executeBatch();
+                mapper.upsert(record.ticker, record.code, record.name, record.market, source, now);
             }
             conn.commit();
             return records.size();
@@ -59,20 +46,20 @@ public final class UniverseDao {
     }
 
     public List<UniverseRecord> listActive(int limit) throws SQLException {
-        String sql = "SELECT ticker, code, name, market FROM universe WHERE active=TRUE ORDER BY code ASC";
-        if (limit > 0) {
-            sql += " LIMIT " + limit;
-        }
         List<UniverseRecord> out = new ArrayList<>();
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            UniverseMapper mapper = session.getMapper(UniverseMapper.class);
+            List<UniverseRecordRow> rows = mapper.listActive(limit);
+            for (UniverseRecordRow row : rows) {
+                if (row == null) {
+                    continue;
+                }
                 out.add(new UniverseRecord(
-                        rs.getString("ticker"),
-                        rs.getString("code"),
-                        rs.getString("name"),
-                        rs.getString("market")
+                        row.getTicker(),
+                        row.getCode(),
+                        row.getName(),
+                        row.getMarket()
                 ));
             }
         }
@@ -81,12 +68,9 @@ public final class UniverseDao {
 
     public int countActive() throws SQLException {
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) AS c FROM universe WHERE active=TRUE");
-             ResultSet rs = ps.executeQuery()) {
-            if (rs.next()) {
-                return rs.getInt("c");
-            }
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            UniverseMapper mapper = session.getMapper(UniverseMapper.class);
+            return mapper.countActive();
         }
-        return 0;
     }
 }

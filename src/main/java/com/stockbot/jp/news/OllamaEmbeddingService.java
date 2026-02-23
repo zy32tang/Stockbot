@@ -45,16 +45,16 @@ public final class OllamaEmbeddingService {
             if (item == null) {
                 continue;
             }
-            String text = buildEmbeddingText(item.title, item.content);
+            String text = buildEmbeddingText(item.getTitle(), item.getContent());
             float[] vec = embedText(text);
             if (vec.length == 0) {
                 continue;
             }
             try {
-                newsItemDao.updateEmbedding(item.id, vec);
+                newsItemDao.updateEmbedding(item.getId(), vec);
                 embedded++;
             } catch (Exception e) {
-                System.err.println("WARN: updateEmbedding failed id=" + item.id + ", err=" + e.getMessage());
+                System.err.println("WARN: updateEmbedding failed id=" + item.getId() + ", err=" + e.getMessage());
             }
         }
         return embedded;

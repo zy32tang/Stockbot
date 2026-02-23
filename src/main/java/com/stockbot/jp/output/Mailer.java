@@ -1,5 +1,7 @@
 package com.stockbot.jp.output;
 
+import com.stockbot.app.properties.EmailProperties;
+import com.stockbot.app.properties.MailProperties;
 import com.stockbot.jp.config.Config;
 import org.simplejavamail.api.email.Email;
 import org.simplejavamail.api.email.EmailPopulatingBuilder;
@@ -38,18 +40,37 @@ public final class Mailer {
     }
 
     public Settings loadSettings(Config config) {
+        return loadSettings(config, null, null);
+    }
+
+    public Settings loadSettings(Config config, EmailProperties emailProperties) {
+        return loadSettings(config, emailProperties, null);
+    }
+
+    public Settings loadSettings(Config config, EmailProperties emailProperties, MailProperties mailProperties) {
         Settings settings = new Settings();
-        settings.enabled = config.getBoolean("email.enabled", true);
-        settings.host = config.getString("email.smtp_host", "smtp.gmail.com");
-        settings.port = config.getInt("email.smtp_port", 587);
-        settings.user = config.getString("email.smtp_user", "");
-        settings.pass = config.getString("email.smtp_pass", "");
-        settings.from = config.getString("email.from", settings.user);
-        settings.to = config.getList("email.to");
-        settings.subjectPrefix = config.getString("email.subject_prefix", "[StockBot JP]");
-        settings.dryRun = config.getBoolean("mail.dry_run", false);
-        settings.failFast = config.getBoolean("mail.fail_fast", false);
-        String customDryRunDir = config.getString("mail.dry_run.dir", "");
+        if (emailProperties == null) {
+            settings.enabled = config.getBoolean("email.enabled", true);
+            settings.host = config.getString("email.smtp_host", "smtp.gmail.com");
+            settings.port = config.getInt("email.smtp_port", 587);
+            settings.user = config.getString("email.smtp_user", "");
+            settings.pass = config.getString("email.smtp_pass", "");
+            settings.from = config.getString("email.from", settings.user);
+            settings.to = config.getList("email.to");
+            settings.subjectPrefix = config.getString("email.subject_prefix", "[StockBot JP]");
+        } else {
+            settings.enabled = emailProperties.isEnabled();
+            settings.host = defaultWhenBlank(emailProperties.getSmtpHost(), "smtp.gmail.com");
+            settings.port = emailProperties.getSmtpPort() > 0 ? emailProperties.getSmtpPort() : 587;
+            settings.user = safe(emailProperties.getSmtpUser());
+            settings.pass = safe(emailProperties.getSmtpPass());
+            settings.from = defaultWhenBlank(emailProperties.getFrom(), settings.user);
+            settings.to = normalizeRecipients(emailProperties.getTo());
+            settings.subjectPrefix = defaultWhenBlank(emailProperties.getSubjectPrefix(), "[StockBot JP]");
+        }
+        settings.dryRun = resolveDryRun(config, mailProperties);
+        settings.failFast = resolveFailFast(config, mailProperties);
+        String customDryRunDir = resolveDryRunDir(config, mailProperties);
         settings.dryRunDir = customDryRunDir.isBlank()
                 ? config.getPath("outputs.dir").resolve("mail_dry_run")
                 : config.workingDir().resolve(customDryRunDir).normalize();
@@ -181,6 +202,52 @@ public final class Mailer {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private String defaultWhenBlank(String value, String fallback) {
+        String trimmed = safe(value).trim();
+        if (!trimmed.isEmpty()) {
+            return trimmed;
+        }
+        return safe(fallback).trim();
+    }
+
+    private List<String> normalizeRecipients(List<String> rawRecipients) {
+        if (rawRecipients == null || rawRecipients.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String raw : rawRecipients) {
+            String trimmed = safe(raw).trim();
+            if (!trimmed.isEmpty()) {
+                out.add(trimmed);
+            }
+        }
+        return out;
+    }
+
+    private boolean resolveDryRun(Config config, MailProperties mailProperties) {
+        if (mailProperties != null && mailProperties.getDryRun() != null) {
+            return mailProperties.getDryRun();
+        }
+        return config.getBoolean("mail.dry_run", false);
+    }
+
+    private boolean resolveFailFast(Config config, MailProperties mailProperties) {
+        if (mailProperties != null && mailProperties.getFailFast() != null) {
+            return mailProperties.getFailFast();
+        }
+        return config.getBoolean("mail.fail_fast", false);
+    }
+
+    private String resolveDryRunDir(Config config, MailProperties mailProperties) {
+        if (mailProperties != null) {
+            String fromProperties = safe(mailProperties.getDryRunDir()).trim();
+            if (!fromProperties.isEmpty()) {
+                return fromProperties;
+            }
+        }
+        return config.getString("mail.dry_run.dir", "");
     }
 
     private boolean isBlank(String value) {

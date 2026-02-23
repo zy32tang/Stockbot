@@ -4,6 +4,8 @@ import com.stockbot.data.http.HttpClientEx;
 import com.stockbot.data.rss.RssParser;
 import com.stockbot.jp.config.Config;
 import com.stockbot.model.NewsItem;
+import lombok.Builder;
+import lombok.Value;
 import org.jsoup.Jsoup;
 
 import java.net.URI;
@@ -157,13 +159,13 @@ public final class NewsIngestor {
         if (b == null) {
             return true;
         }
-        if (a.publishedAt == null) {
+        if (a.getPublishedAt() == null) {
             return false;
         }
-        if (b.publishedAt == null) {
+        if (b.getPublishedAt() == null) {
             return true;
         }
-        return a.publishedAt.isAfter(b.publishedAt);
+        return a.getPublishedAt().isAfter(b.getPublishedAt());
     }
 
     private List<NewsItem> fetchGoogle(String query, String lang, String region, int limit, int timeoutSec) {
@@ -283,11 +285,13 @@ public final class NewsIngestor {
         return value == null ? "" : value;
     }
 
+    @Value
     public static final class IngestResult {
         public final int fetchedCount;
         public final int upsertedCount;
         public final String sourceLabel;
 
+        @Builder(toBuilder = true)
         public IngestResult(int fetchedCount, int upsertedCount, String sourceLabel) {
             this.fetchedCount = Math.max(0, fetchedCount);
             this.upsertedCount = Math.max(0, upsertedCount);

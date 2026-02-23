@@ -2,6 +2,7 @@ package com.stockbot.jp.config;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Array;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -61,6 +62,15 @@ public final class Config {
             }
         }
 
+        return config;
+    }
+
+    /**
+     * Build Config from Spring-bound configuration properties.
+     */
+    public static Config fromConfigurationProperties(Path workingDir, Map<String, ?> rawProperties) {
+        Config config = new Config(workingDir);
+        flattenInto(config, "", rawProperties);
         return config;
     }
 
@@ -286,6 +296,55 @@ public final class Config {
         }
         String t = raw.trim();
         return t.isEmpty() ? "" : t;
+    }
+
+    private static void flattenInto(Config config, String prefix, Object value) {
+        if (config == null || value == null) {
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String key = entry.getKey() == null ? "" : entry.getKey().toString().trim();
+                if (key.isEmpty()) {
+                    continue;
+                }
+                String fullKey = prefix.isEmpty() ? key : prefix + "." + key;
+                flattenInto(config, fullKey, entry.getValue());
+            }
+            return;
+        }
+        if (value instanceof List<?> list) {
+            List<String> parts = new ArrayList<>();
+            for (Object item : list) {
+                parts.add(stringify(item));
+            }
+            putBoundValue(config, prefix, String.join(",", parts));
+            return;
+        }
+        if (value.getClass().isArray()) {
+            int len = Array.getLength(value);
+            List<String> parts = new ArrayList<>(len);
+            for (int i = 0; i < len; i++) {
+                parts.add(stringify(Array.get(value, i)));
+            }
+            putBoundValue(config, prefix, String.join(",", parts));
+            return;
+        }
+        putBoundValue(config, prefix, stringify(value));
+    }
+
+    private static void putBoundValue(Config config, String key, String value) {
+        if (config == null || key == null || key.trim().isEmpty()) {
+            return;
+        }
+        String normalizedKey = key.trim();
+        String normalizedValue = value == null ? "" : value;
+        config.overrideProps.setProperty(normalizedKey, normalizedValue);
+        config.props.setProperty(normalizedKey, normalizedValue);
+    }
+
+    private static String stringify(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
 /**

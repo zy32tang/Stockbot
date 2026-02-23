@@ -3,6 +3,8 @@ package com.stockbot.jp.news;
 import com.stockbot.data.http.HttpClientEx;
 import com.stockbot.jp.config.Config;
 import com.stockbot.model.NewsItem;
+import lombok.Builder;
+import lombok.Value;
 
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
@@ -72,8 +74,8 @@ public final class WatchlistNewsPipeline {
         List<NewsItemDao.NewsItemRecord> deduped = deduplicate(matches, dedupThreshold);
 
         deduped.sort(Comparator
-                .comparingDouble((NewsItemDao.NewsItemRecord it) -> it.similarity).reversed()
-                .thenComparing((NewsItemDao.NewsItemRecord it) -> timestampOrMin(it.publishedAt)).reversed());
+                .comparingDouble((NewsItemDao.NewsItemRecord it) -> it.getSimilarity()).reversed()
+                .thenComparing((NewsItemDao.NewsItemRecord it) -> timestampOrMin(it.getPublishedAt())).reversed());
         if (deduped.size() > topK) {
             deduped = new ArrayList<>(deduped.subList(0, topK));
         }
@@ -101,8 +103,8 @@ public final class WatchlistNewsPipeline {
     private List<NewsItemDao.NewsItemRecord> deduplicate(List<NewsItemDao.NewsItemRecord> items, double threshold) {
         List<NewsItemDao.NewsItemRecord> sorted = new ArrayList<>(items);
         sorted.sort(Comparator
-                .comparing((NewsItemDao.NewsItemRecord it) -> timestampOrMin(it.publishedAt)).reversed()
-                .thenComparingInt((NewsItemDao.NewsItemRecord it) -> safe(it.content).length()).reversed());
+                .comparing((NewsItemDao.NewsItemRecord it) -> timestampOrMin(it.getPublishedAt())).reversed()
+                .thenComparingInt((NewsItemDao.NewsItemRecord it) -> safe(it.getContent()).length()).reversed());
 
         List<NewsItemDao.NewsItemRecord> kept = new ArrayList<>();
         for (NewsItemDao.NewsItemRecord item : sorted) {
@@ -111,7 +113,7 @@ public final class WatchlistNewsPipeline {
             }
             int duplicateIdx = -1;
             for (int i = 0; i < kept.size(); i++) {
-                double sim = cosine(item.embedding, kept.get(i).embedding);
+                double sim = cosine(item.getEmbedding(), kept.get(i).getEmbedding());
                 if (sim >= threshold) {
                     duplicateIdx = i;
                     break;
@@ -133,16 +135,16 @@ public final class WatchlistNewsPipeline {
         if (old == null) {
             return true;
         }
-        OffsetDateTime nt = next.publishedAt;
-        OffsetDateTime ot = old.publishedAt;
+        OffsetDateTime nt = next.getPublishedAt();
+        OffsetDateTime ot = old.getPublishedAt();
         if (nt != null && ot != null && nt.isAfter(ot)) {
             return true;
         }
         if (nt != null && ot == null) {
             return true;
         }
-        int nextInfo = safe(next.title).length() + safe(next.content).length();
-        int oldInfo = safe(old.title).length() + safe(old.content).length();
+        int nextInfo = safe(next.getTitle()).length() + safe(next.getContent()).length();
+        int oldInfo = safe(old.getTitle()).length() + safe(old.getContent()).length();
         return nextInfo > oldInfo;
     }
 
@@ -156,7 +158,7 @@ public final class WatchlistNewsPipeline {
             double bestSim = -1.0;
             for (int i = 0; i < clusters.size(); i++) {
                 NewsCluster cluster = clusters.get(i);
-                double sim = cosine(item.embedding, cluster.centroid);
+                double sim = cosine(item.getEmbedding(), cluster.centroid);
                 if (sim >= threshold && sim > bestSim) {
                     best = i;
                     bestSim = sim;
@@ -187,7 +189,7 @@ public final class WatchlistNewsPipeline {
             List<String> lines = new ArrayList<>();
             for (int i = 0; i < cluster.items.size() && i < 4; i++) {
                 NewsItemDao.NewsItemRecord item = cluster.items.get(i);
-                lines.add(safe(item.title));
+                lines.add(safe(item.getTitle()));
             }
             out.add(new LangChainSummaryService.ClusterInput(cluster.label, lines));
         }
@@ -203,12 +205,12 @@ public final class WatchlistNewsPipeline {
             }
             NewsItemDao.NewsItemRecord top = cluster.items.get(0);
             StringBuilder line = new StringBuilder();
-            line.append(safe(top.title));
-            if (!safe(top.source).isEmpty()) {
-                line.append(" | ").append(top.source);
+            line.append(safe(top.getTitle()));
+            if (!safe(top.getSource()).isEmpty()) {
+                line.append(" | ").append(top.getSource());
             }
-            if (top.publishedAt != null) {
-                line.append(" | ").append(DIGEST_TS_FMT.format(top.publishedAt));
+            if (top.getPublishedAt() != null) {
+                line.append(" | ").append(DIGEST_TS_FMT.format(top.getPublishedAt()));
             }
             out.add(line.toString());
             if (out.size() >= maxDigestItems) {
@@ -225,11 +227,11 @@ public final class WatchlistNewsPipeline {
                 continue;
             }
             out.add(new NewsItem(
-                    safe(item.title),
-                    safe(item.content),
-                    safe(item.url),
-                    safe(item.source),
-                    item.publishedAt == null ? null : item.publishedAt.toZonedDateTime()
+                    safe(item.getTitle()),
+                    safe(item.getContent()),
+                    safe(item.getUrl()),
+                    safe(item.getSource()),
+                    item.getPublishedAt() == null ? null : item.getPublishedAt().toZonedDateTime()
             ));
         }
         return out;
@@ -307,6 +309,7 @@ public final class WatchlistNewsPipeline {
         return value == null ? "" : value;
     }
 
+    @Value
     public static final class PipelineResult {
         public final List<NewsItem> newsItems;
         public final List<String> digestLines;
@@ -316,6 +319,7 @@ public final class WatchlistNewsPipeline {
         public final int embeddedCount;
         public final List<NewsCluster> clusters;
 
+        @Builder(toBuilder = true)
         public PipelineResult(
                 List<NewsItem> newsItems,
                 List<String> digestLines,
@@ -355,7 +359,7 @@ public final class WatchlistNewsPipeline {
 
         private NewsCluster(NewsItemDao.NewsItemRecord seed) {
             this.items = new ArrayList<>();
-            this.centroid = seed.embedding == null ? new float[0] : seed.embedding.clone();
+            this.centroid = seed.getEmbedding() == null ? new float[0] : seed.getEmbedding().clone();
             add(seed);
             refreshLabel();
         }
@@ -370,26 +374,26 @@ public final class WatchlistNewsPipeline {
             }
             if (items.isEmpty()) {
                 items.add(item);
-                latestPublishedAt = item.publishedAt;
-                if (item.embedding != null) {
-                    centroid = item.embedding.clone();
+                latestPublishedAt = item.getPublishedAt();
+                if (item.getEmbedding() != null) {
+                    centroid = item.getEmbedding().clone();
                 }
                 return;
             }
             int nextCount = items.size() + 1;
-            if (item.embedding != null && item.embedding.length > 0 && centroid != null && centroid.length > 0) {
-                int size = Math.min(centroid.length, item.embedding.length);
+            if (item.getEmbedding() != null && item.getEmbedding().length > 0 && centroid != null && centroid.length > 0) {
+                int size = Math.min(centroid.length, item.getEmbedding().length);
                 for (int i = 0; i < size; i++) {
-                    centroid[i] = (float) ((centroid[i] * items.size() + item.embedding[i]) / nextCount);
+                    centroid[i] = (float) ((centroid[i] * items.size() + item.getEmbedding()[i]) / nextCount);
                 }
             }
             items.add(item);
-            if (latestPublishedAt == null || (item.publishedAt != null && item.publishedAt.isAfter(latestPublishedAt))) {
-                latestPublishedAt = item.publishedAt;
+            if (latestPublishedAt == null || (item.getPublishedAt() != null && item.getPublishedAt().isAfter(latestPublishedAt))) {
+                latestPublishedAt = item.getPublishedAt();
             }
             items.sort(Comparator
-                    .comparingDouble((NewsItemDao.NewsItemRecord it) -> it.similarity).reversed()
-                    .thenComparing((NewsItemDao.NewsItemRecord it) -> it.publishedAt == null ? OffsetDateTime.MIN : it.publishedAt).reversed());
+                    .comparingDouble((NewsItemDao.NewsItemRecord it) -> it.getSimilarity()).reversed()
+                    .thenComparing((NewsItemDao.NewsItemRecord it) -> it.getPublishedAt() == null ? OffsetDateTime.MIN : it.getPublishedAt()).reversed());
         }
 
         void refreshLabel() {
@@ -397,7 +401,7 @@ public final class WatchlistNewsPipeline {
                 this.label = "cluster";
                 return;
             }
-            String base = items.get(0).title == null ? "" : items.get(0).title.trim();
+            String base = items.get(0).getTitle() == null ? "" : items.get(0).getTitle().trim();
             if (base.isEmpty()) {
                 base = "event cluster";
             }

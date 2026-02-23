@@ -1,16 +1,17 @@
 package com.stockbot.jp.db;
 
+import com.stockbot.jp.db.mybatis.BarDailyMapper;
+import com.stockbot.jp.db.mybatis.BarDailyRow;
+import com.stockbot.jp.db.mybatis.MyBatisSupport;
 import com.stockbot.jp.model.BarDaily;
+import org.apache.ibatis.session.SqlSession;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
-import java.util.StringJoiner;
 
 /**
  * DAO for daily OHLCV prices.
@@ -78,85 +79,56 @@ public final class BarDailyDao {
         if (bars == null || bars.isEmpty()) {
             return;
         }
-        String sql = "INSERT INTO price_daily(ticker, trade_date, open, high, low, close, volume, source) " +
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?) " +
-                "ON CONFLICT(ticker, trade_date) DO UPDATE SET " +
-                "open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, " +
-                "volume=excluded.volume, source=excluded.source";
-
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             SqlSession session = MyBatisSupport.openSession(conn)) {
             conn.setAutoCommit(false);
+            BarDailyMapper mapper = session.getMapper(BarDailyMapper.class);
             for (BarDaily bar : bars) {
                 if (bar == null || bar.tradeDate == null) {
                     continue;
                 }
-                ps.setString(1, ticker);
-                ps.setObject(2, bar.tradeDate);
-                ps.setDouble(3, bar.open);
-                ps.setDouble(4, bar.high);
-                ps.setDouble(5, bar.low);
-                ps.setDouble(6, bar.close);
-                ps.setDouble(7, bar.volume);
-                ps.setString(8, source);
-                ps.addBatch();
+                mapper.upsertBar(
+                        ticker,
+                        bar.tradeDate,
+                        bar.open,
+                        bar.high,
+                        bar.low,
+                        bar.close,
+                        bar.volume,
+                        source
+                );
             }
-            ps.executeBatch();
             conn.commit();
         }
     }
 
     private LocalDate latestTradeDate(String ticker) throws SQLException {
-        String sql = "SELECT MAX(trade_date) AS max_date FROM price_daily WHERE ticker=?";
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, ticker);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    LocalDate maxDate = rs.getObject("max_date", LocalDate.class);
-                    if (maxDate != null) {
-                        return maxDate;
-                    }
-                    String text = rs.getString("max_date");
-                    if (text != null && !text.trim().isEmpty()) {
-                        return LocalDate.parse(text.trim());
-                    }
-                }
-            }
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            BarDailyMapper mapper = session.getMapper(BarDailyMapper.class);
+            return mapper.selectLatestTradeDate(ticker);
         }
-        return null;
     }
 
     public List<BarDaily> loadRecentBars(String ticker, int limit) throws SQLException {
-        String sql = "SELECT ticker, trade_date, open, high, low, close, volume " +
-                "FROM price_daily WHERE ticker=? ORDER BY trade_date DESC LIMIT ?";
         List<BarDaily> desc = new ArrayList<>();
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, ticker);
-            ps.setInt(2, Math.max(1, limit));
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    LocalDate tradeDate = rs.getObject("trade_date", LocalDate.class);
-                    if (tradeDate == null) {
-                        String raw = rs.getString("trade_date");
-                        if (raw != null && !raw.trim().isEmpty()) {
-                            tradeDate = LocalDate.parse(raw.trim());
-                        }
-                    }
-                    if (tradeDate == null) {
-                        continue;
-                    }
-                    desc.add(new BarDaily(
-                            rs.getString("ticker"),
-                            tradeDate,
-                            rs.getDouble("open"),
-                            rs.getDouble("high"),
-                            rs.getDouble("low"),
-                            rs.getDouble("close"),
-                            rs.getDouble("volume")
-                    ));
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            BarDailyMapper mapper = session.getMapper(BarDailyMapper.class);
+            List<BarDailyRow> rows = mapper.selectRecentBars(ticker, Math.max(1, limit));
+            for (BarDailyRow row : rows) {
+                if (row == null || row.getTradeDate() == null) {
+                    continue;
                 }
+                desc.add(new BarDaily(
+                        row.getTicker(),
+                        row.getTradeDate(),
+                        n(row.getOpen()),
+                        n(row.getHigh()),
+                        n(row.getLow()),
+                        n(row.getClose()),
+                        n(row.getVolume())
+                ));
             }
         }
         List<BarDaily> asc = new ArrayList<>(desc.size());
@@ -167,20 +139,15 @@ public final class BarDailyDao {
     }
 
     public OptionalDouble closeOnOrAfterWithOffset(String ticker, LocalDate date, int offset) throws SQLException {
-        String sql = "SELECT close FROM price_daily WHERE ticker=? AND trade_date>=? " +
-                "ORDER BY trade_date ASC LIMIT 1 OFFSET ?";
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, ticker);
-            ps.setObject(2, date);
-            ps.setInt(3, Math.max(0, offset));
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return OptionalDouble.of(rs.getDouble("close"));
-                }
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            BarDailyMapper mapper = session.getMapper(BarDailyMapper.class);
+            Double close = mapper.selectCloseOnOrAfterWithOffset(ticker, date, Math.max(0, offset));
+            if (close == null) {
+                return OptionalDouble.empty();
             }
+            return OptionalDouble.of(close);
         }
-        return OptionalDouble.empty();
     }
 
     public int countTickersWithMinBars(List<String> tickers, int minBars) throws SQLException {
@@ -198,26 +165,14 @@ public final class BarDailyDao {
             return 0;
         }
         int threshold = Math.max(1, minBars);
-        StringJoiner in = new StringJoiner(",");
-        for (int i = 0; i < normalized.size(); i++) {
-            in.add("?");
-        }
-        String sql = "SELECT COUNT(*) AS c FROM (" +
-                "SELECT ticker FROM price_daily WHERE ticker IN (" + in + ") GROUP BY ticker HAVING COUNT(*)>=?" +
-                ") t";
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            int idx = 1;
-            for (String ticker : normalized) {
-                ps.setString(idx++, ticker);
-            }
-            ps.setInt(idx, threshold);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("c");
-                }
-            }
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            BarDailyMapper mapper = session.getMapper(BarDailyMapper.class);
+            return mapper.countTickersWithMinBars(normalized, threshold);
         }
-        return 0;
+    }
+
+    private double n(Double value) {
+        return value == null ? 0.0 : value;
     }
 }

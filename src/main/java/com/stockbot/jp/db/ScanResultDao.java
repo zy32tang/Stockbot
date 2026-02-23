@@ -1,13 +1,18 @@
 package com.stockbot.jp.db;
 
+import com.stockbot.jp.db.mybatis.DataSourceCountRow;
+import com.stockbot.jp.db.mybatis.MyBatisSupport;
+import com.stockbot.jp.db.mybatis.ScanCoverageRow;
+import com.stockbot.jp.db.mybatis.ScanReasonCountRow;
+import com.stockbot.jp.db.mybatis.ScanResultInsertParam;
+import com.stockbot.jp.db.mybatis.ScanResultMapper;
 import com.stockbot.jp.model.DataInsufficientReason;
 import com.stockbot.jp.model.ScanFailureReason;
 import com.stockbot.jp.model.ScanResultSummary;
 import com.stockbot.jp.model.TickerScanResult;
+import org.apache.ibatis.session.SqlSession;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -30,42 +35,41 @@ public final class ScanResultDao {
         if (runId <= 0 || results == null || results.isEmpty()) {
             return;
         }
-        String sql = "INSERT INTO scan_results(run_id, ticker, code, market, data_source, price_timestamp, bars_count, last_close, cache_hit, " +
-                "fetch_latency_ms, fetch_success, indicator_ready, candidate_ready, data_insufficient_reason, failure_reason, request_failure_category, error, created_at) " +
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             SqlSession session = MyBatisSupport.openSession(conn)) {
             conn.setAutoCommit(false);
+            ScanResultMapper mapper = session.getMapper(ScanResultMapper.class);
             for (TickerScanResult result : results) {
                 if (result == null || result.universe == null) {
                     continue;
                 }
-                ps.setLong(1, runId);
-                ps.setString(2, result.universe.ticker);
-                ps.setString(3, result.universe.code);
-                ps.setString(4, result.universe.market);
-                ps.setString(5, result.dataSource);
-                ps.setObject(6, result.lastTradeDate);
-                ps.setInt(7, Math.max(0, result.barsCount));
-                ps.setObject(8, Double.isFinite(result.lastClose) && result.lastClose > 0.0 ? result.lastClose : null);
-                ps.setBoolean(9, result.cacheHit);
-                ps.setLong(10, Math.max(0L, result.fetchLatencyMs));
-                ps.setBoolean(11, result.fetchSuccess);
-                ps.setBoolean(12, result.indicatorReady);
-                ps.setBoolean(13, result.candidate != null);
-                ps.setString(14, result.dataInsufficientReason == null
-                        ? DataInsufficientReason.NONE.name()
-                        : result.dataInsufficientReason.name());
-                ps.setString(15, result.failureReason == null
-                        ? ScanFailureReason.NONE.label()
-                        : result.failureReason.label());
-                ps.setString(16, result.requestFailureCategory);
-                ps.setString(17, result.error);
-                ps.setObject(18, now);
-                ps.addBatch();
+                ScanResultInsertParam row = ScanResultInsertParam.builder()
+                        .runId(runId)
+                        .ticker(result.universe.ticker)
+                        .code(result.universe.code)
+                        .market(result.universe.market)
+                        .dataSource(result.dataSource)
+                        .priceTimestamp(result.lastTradeDate)
+                        .barsCount(Math.max(0, result.barsCount))
+                        .lastClose(Double.isFinite(result.lastClose) && result.lastClose > 0.0 ? result.lastClose : null)
+                        .cacheHit(result.cacheHit)
+                        .fetchLatencyMs(Math.max(0L, result.fetchLatencyMs))
+                        .fetchSuccess(result.fetchSuccess)
+                        .indicatorReady(result.indicatorReady)
+                        .candidateReady(result.candidate != null)
+                        .dataInsufficientReason(result.dataInsufficientReason == null
+                                ? DataInsufficientReason.NONE.name()
+                                : result.dataInsufficientReason.name())
+                        .failureReason(result.failureReason == null
+                                ? ScanFailureReason.NONE.label()
+                                : result.failureReason.label())
+                        .requestFailureCategory(result.requestFailureCategory)
+                        .error(result.error)
+                        .createdAt(now)
+                        .build();
+                mapper.insertScanResult(row);
             }
-            ps.executeBatch();
             conn.commit();
         }
     }
@@ -96,91 +100,45 @@ public final class ScanResultDao {
         breakdownDenominatorExcluded.put("stale", 0);
         breakdownDenominatorExcluded.put("http_404/no_data", 0);
 
-        try (Connection conn = database.connect()) {
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT COUNT(*) AS total, " +
-                            "SUM(CASE WHEN fetch_success THEN 1 ELSE 0 END) AS fetch_coverage, " +
-                            "SUM(CASE WHEN indicator_ready THEN 1 ELSE 0 END) AS indicator_coverage, " +
-                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='filtered_non_tradable' THEN 1 ELSE 0 END) AS ex_filtered_non_tradable, " +
-                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='history_short' THEN 1 ELSE 0 END) AS ex_history_short, " +
-                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='stale' THEN 1 ELSE 0 END) AS ex_stale, " +
-                            "SUM(CASE WHEN LOWER(COALESCE(failure_reason, ''))='http_404/no_data' OR LOWER(COALESCE(request_failure_category, ''))='no_data' THEN 1 ELSE 0 END) AS ex_no_data, " +
-                            "SUM(CASE WHEN NOT (" +
-                            "LOWER(COALESCE(failure_reason, ''))='filtered_non_tradable' OR " +
-                            "LOWER(COALESCE(failure_reason, ''))='history_short' OR " +
-                            "LOWER(COALESCE(failure_reason, ''))='stale' OR " +
-                            "LOWER(COALESCE(failure_reason, ''))='http_404/no_data' OR " +
-                            "LOWER(COALESCE(request_failure_category, ''))='no_data'" +
-                            ") THEN 1 ELSE 0 END) AS tradable_denominator, " +
-                            "SUM(CASE WHEN indicator_ready AND NOT (" +
-                            "LOWER(COALESCE(failure_reason, ''))='filtered_non_tradable' OR " +
-                            "LOWER(COALESCE(failure_reason, ''))='history_short' OR " +
-                            "LOWER(COALESCE(failure_reason, ''))='stale' OR " +
-                            "LOWER(COALESCE(failure_reason, ''))='http_404/no_data' OR " +
-                            "LOWER(COALESCE(request_failure_category, ''))='no_data'" +
-                            ") THEN 1 ELSE 0 END) AS tradable_indicator_coverage " +
-                            "FROM scan_results WHERE run_id=?"
-            )) {
-                ps.setLong(1, runId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) {
-                        total = rs.getInt("total");
-                        fetchCoverage = rs.getInt("fetch_coverage");
-                        indicatorCoverage = rs.getInt("indicator_coverage");
-                        int excludedFiltered = rs.getInt("ex_filtered_non_tradable");
-                        int excludedHistory = rs.getInt("ex_history_short");
-                        int excludedStale = rs.getInt("ex_stale");
-                        int excludedNoData = rs.getInt("ex_no_data");
-                        breakdownDenominatorExcluded.put("filtered_non_tradable", Math.max(0, excludedFiltered));
-                        breakdownDenominatorExcluded.put("history_short", Math.max(0, excludedHistory));
-                        breakdownDenominatorExcluded.put("stale", Math.max(0, excludedStale));
-                        breakdownDenominatorExcluded.put("http_404/no_data", Math.max(0, excludedNoData));
-                        tradableDenominator = rs.getInt("tradable_denominator");
-                        tradableIndicatorCoverage = rs.getInt("tradable_indicator_coverage");
-                    }
-                }
+        try (Connection conn = database.connect();
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            ScanResultMapper mapper = session.getMapper(ScanResultMapper.class);
+
+            ScanCoverageRow coverage = mapper.selectCoverage(runId);
+            if (coverage != null) {
+                total = coverage.getTotal();
+                fetchCoverage = coverage.getFetchCoverage();
+                indicatorCoverage = coverage.getIndicatorCoverage();
+                breakdownDenominatorExcluded.put("filtered_non_tradable", Math.max(0, coverage.getExFilteredNonTradable()));
+                breakdownDenominatorExcluded.put("history_short", Math.max(0, coverage.getExHistoryShort()));
+                breakdownDenominatorExcluded.put("stale", Math.max(0, coverage.getExStale()));
+                breakdownDenominatorExcluded.put("http_404/no_data", Math.max(0, coverage.getExNoData()));
+                tradableDenominator = coverage.getTradableDenominator();
+                tradableIndicatorCoverage = coverage.getTradableIndicatorCoverage();
             }
 
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT failure_reason, COUNT(*) AS n " +
-                            "FROM scan_results WHERE run_id=? AND failure_reason IS NOT NULL AND failure_reason<>'' " +
-                            "GROUP BY failure_reason"
-            )) {
-                ps.setLong(1, runId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        ScanFailureReason reason = ScanFailureReason.fromLabel(rs.getString("failure_reason"));
-                        failureCounts.put(reason, rs.getInt("n"));
-                    }
+            for (ScanReasonCountRow row : mapper.selectFailureReasonCounts(runId)) {
+                if (row == null) {
+                    continue;
                 }
+                ScanFailureReason reason = ScanFailureReason.fromLabel(row.getValue());
+                failureCounts.put(reason, row.getN());
             }
 
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT request_failure_category, COUNT(*) AS n " +
-                            "FROM scan_results WHERE run_id=? AND request_failure_category IS NOT NULL AND request_failure_category<>'' " +
-                            "GROUP BY request_failure_category"
-            )) {
-                ps.setLong(1, runId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        ScanFailureReason reason = mapRequestCategory(rs.getString("request_failure_category"));
-                        requestFailureCounts.put(reason, rs.getInt("n"));
-                    }
+            for (ScanReasonCountRow row : mapper.selectRequestFailureCategoryCounts(runId)) {
+                if (row == null) {
+                    continue;
                 }
+                ScanFailureReason reason = mapRequestCategory(row.getValue());
+                requestFailureCounts.put(reason, row.getN());
             }
 
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT data_insufficient_reason, COUNT(*) AS n " +
-                            "FROM scan_results WHERE run_id=? AND data_insufficient_reason IS NOT NULL AND data_insufficient_reason<>'' " +
-                            "GROUP BY data_insufficient_reason"
-            )) {
-                ps.setLong(1, runId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        DataInsufficientReason reason = DataInsufficientReason.fromText(rs.getString("data_insufficient_reason"));
-                        insufficientCounts.put(reason, rs.getInt("n"));
-                    }
+            for (ScanReasonCountRow row : mapper.selectDataInsufficientReasonCounts(runId)) {
+                if (row == null) {
+                    continue;
                 }
+                DataInsufficientReason reason = DataInsufficientReason.fromText(row.getValue());
+                insufficientCounts.put(reason, row.getN());
             }
         }
 
@@ -204,19 +162,18 @@ public final class ScanResultDao {
         out.put("other", 0);
 
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(
-                     "SELECT data_source, COUNT(*) AS n FROM scan_results WHERE run_id=? GROUP BY data_source"
-             )) {
-            ps.setLong(1, runId);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String raw = rs.getString("data_source");
-                    String key = raw == null ? "" : raw.trim().toLowerCase();
-                    if (!out.containsKey(key)) {
-                        key = "other";
-                    }
-                    out.put(key, out.getOrDefault(key, 0) + rs.getInt("n"));
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            ScanResultMapper mapper = session.getMapper(ScanResultMapper.class);
+            for (DataSourceCountRow row : mapper.selectDataSourceCounts(runId)) {
+                if (row == null) {
+                    continue;
                 }
+                String raw = row.getDataSource();
+                String key = raw == null ? "" : raw.trim().toLowerCase();
+                if (!out.containsKey(key)) {
+                    key = "other";
+                }
+                out.put(key, out.getOrDefault(key, 0) + row.getN());
             }
         }
         return Map.copyOf(out);

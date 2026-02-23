@@ -1,13 +1,16 @@
 package com.stockbot.jp.news;
 
 import com.stockbot.jp.db.Database;
+import com.stockbot.jp.db.mybatis.MyBatisSupport;
+import com.stockbot.jp.db.mybatis.NewsItemMapper;
+import com.stockbot.jp.db.mybatis.NewsItemSearchRow;
+import lombok.Builder;
+import lombok.Value;
+import org.apache.ibatis.session.SqlSession;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -26,39 +29,27 @@ public final class NewsItemDao {
         if (items == null || items.isEmpty()) {
             return 0;
         }
-        String sql = "INSERT INTO news_item(url, title, content, source, lang, region, published_at, created_at, updated_at) " +
-                "VALUES(?, ?, ?, ?, ?, ?, ?, now(), now()) " +
-                "ON CONFLICT(url) DO UPDATE SET " +
-                "title=excluded.title, " +
-                "content=excluded.content, " +
-                "source=excluded.source, " +
-                "lang=excluded.lang, " +
-                "region=excluded.region, " +
-                "published_at=COALESCE(excluded.published_at, news_item.published_at), " +
-                "embedding=CASE " +
-                "WHEN news_item.title IS DISTINCT FROM excluded.title OR news_item.content IS DISTINCT FROM excluded.content " +
-                "THEN NULL ELSE news_item.embedding END, " +
-                "updated_at=now()";
 
         int affected = 0;
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             SqlSession session = MyBatisSupport.openSession(conn)) {
             conn.setAutoCommit(false);
+            NewsItemMapper mapper = session.getMapper(NewsItemMapper.class);
             for (UpsertItem item : items) {
-                if (item == null || isBlank(item.url) || isBlank(item.title)) {
+                if (item == null || isBlank(item.getUrl()) || isBlank(item.getTitle())) {
                     continue;
                 }
-                ps.setString(1, item.url.trim());
-                ps.setString(2, item.title.trim());
-                ps.setString(3, safe(item.content));
-                ps.setString(4, blankTo(item.source, "rss"));
-                ps.setString(5, safe(item.lang));
-                ps.setString(6, safe(item.region));
-                ps.setObject(7, item.publishedAt);
-                ps.addBatch();
+                mapper.upsertNewsItem(
+                        item.getUrl().trim(),
+                        item.getTitle().trim(),
+                        safe(item.getContent()),
+                        blankTo(item.getSource(), "rss"),
+                        safe(item.getLang()),
+                        safe(item.getRegion()),
+                        item.getPublishedAt()
+                );
                 affected++;
             }
-            ps.executeBatch();
             conn.commit();
         }
         return affected;
@@ -66,27 +57,12 @@ public final class NewsItemDao {
 
     public List<NewsItemRecord> listWithoutEmbedding(int limit) throws SQLException {
         int safeLimit = Math.max(1, limit);
-        String sql = "SELECT id, url, title, content, source, lang, region, published_at " +
-                "FROM news_item WHERE embedding IS NULL ORDER BY published_at DESC NULLS LAST, id DESC LIMIT ?";
         List<NewsItemRecord> out = new ArrayList<>();
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, safeLimit);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    out.add(new NewsItemRecord(
-                            rs.getLong("id"),
-                            safe(rs.getString("url")),
-                            safe(rs.getString("title")),
-                            safe(rs.getString("content")),
-                            safe(rs.getString("source")),
-                            safe(rs.getString("lang")),
-                            safe(rs.getString("region")),
-                            readOffsetDateTime(rs, "published_at"),
-                            null,
-                            0.0
-                    ));
-                }
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            NewsItemMapper mapper = session.getMapper(NewsItemMapper.class);
+            for (NewsItemSearchRow row : mapper.listWithoutEmbedding(safeLimit)) {
+                out.add(toRecord(row));
             }
         }
         return out;
@@ -97,12 +73,10 @@ public final class NewsItemDao {
         if (literal == null) {
             return;
         }
-        String sql = "UPDATE news_item SET embedding=CAST(? AS vector), updated_at=now() WHERE id=?";
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, literal);
-            ps.setLong(2, id);
-            ps.executeUpdate();
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            NewsItemMapper mapper = session.getMapper(NewsItemMapper.class);
+            mapper.updateEmbedding(id, literal);
         }
     }
 
@@ -111,54 +85,39 @@ public final class NewsItemDao {
         if (literal == null || options == null) {
             return List.of();
         }
-        int topK = Math.max(1, options.topK);
-        int lookbackDays = Math.max(0, options.lookbackDays);
-        String lang = safe(options.lang);
-        String region = safe(options.region);
-
-        String sql = "SELECT id, url, title, content, source, lang, region, published_at, " +
-                "embedding::text AS embedding_text, " +
-                "(1 - (embedding <=> CAST(? AS vector))) AS similarity " +
-                "FROM news_item " +
-                "WHERE embedding IS NOT NULL " +
-                "AND (? = '' OR lang = ?) " +
-                "AND (? = '' OR region = ?) " +
-                "AND (? <= 0 OR published_at >= (now() - (? || ' days')::interval)) " +
-                "ORDER BY embedding <=> CAST(? AS vector) " +
-                "LIMIT ?";
+        int topK = Math.max(1, options.getTopK());
+        int lookbackDays = Math.max(0, options.getLookbackDays());
+        String lang = safe(options.getLang());
+        String region = safe(options.getRegion());
 
         List<NewsItemRecord> out = new ArrayList<>();
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            int idx = 1;
-            ps.setString(idx++, literal);
-            ps.setString(idx++, lang);
-            ps.setString(idx++, lang);
-            ps.setString(idx++, region);
-            ps.setString(idx++, region);
-            ps.setInt(idx++, lookbackDays);
-            ps.setInt(idx++, lookbackDays);
-            ps.setString(idx++, literal);
-            ps.setInt(idx, topK);
-
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    out.add(new NewsItemRecord(
-                            rs.getLong("id"),
-                            safe(rs.getString("url")),
-                            safe(rs.getString("title")),
-                            safe(rs.getString("content")),
-                            safe(rs.getString("source")),
-                            safe(rs.getString("lang")),
-                            safe(rs.getString("region")),
-                            readOffsetDateTime(rs, "published_at"),
-                            parseVectorLiteral(rs.getString("embedding_text")),
-                            rs.getDouble("similarity")
-                    ));
-                }
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            NewsItemMapper mapper = session.getMapper(NewsItemMapper.class);
+            List<NewsItemSearchRow> rows = mapper.searchSimilar(literal, topK, lookbackDays, lang, region);
+            for (NewsItemSearchRow row : rows) {
+                out.add(toRecord(row));
             }
         }
         return out;
+    }
+
+    private NewsItemRecord toRecord(NewsItemSearchRow row) {
+        if (row == null) {
+            return NewsItemRecord.builder().build();
+        }
+        return NewsItemRecord.builder()
+                .id(row.getId())
+                .url(safe(row.getUrl()))
+                .title(safe(row.getTitle()))
+                .content(safe(row.getContent()))
+                .source(safe(row.getSource()))
+                .lang(safe(row.getLang()))
+                .region(safe(row.getRegion()))
+                .publishedAt(row.getPublishedAt())
+                .embedding(parseVectorLiteral(row.getEmbeddingText()))
+                .similarity(row.getSimilarity() == null ? 0.0 : row.getSimilarity())
+                .build();
     }
 
     public static String toVectorLiteral(float[] vector) {
@@ -212,23 +171,6 @@ public final class NewsItemDao {
         return out;
     }
 
-    private OffsetDateTime readOffsetDateTime(ResultSet rs, String column) {
-        try {
-            OffsetDateTime v = rs.getObject(column, OffsetDateTime.class);
-            if (v != null) {
-                return v;
-            }
-        } catch (Exception ignored) {
-            // Fall through.
-        }
-        try {
-            java.sql.Timestamp ts = rs.getTimestamp(column);
-            return ts == null ? null : ts.toInstant().atOffset(ZoneOffset.UTC);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
     private String safe(String value) {
         return value == null ? "" : value;
     }
@@ -242,40 +184,26 @@ public final class NewsItemDao {
         return value == null || value.trim().isEmpty();
     }
 
-    public static final class UpsertItem {
-        public final String url;
-        public final String title;
-        public final String content;
-        public final String source;
-        public final String lang;
-        public final String region;
-        public final OffsetDateTime publishedAt;
-
-        public UpsertItem(
-                String url,
-                String title,
-                String content,
-                String source,
-                String lang,
-                String region,
-                OffsetDateTime publishedAt
-        ) {
-            this.url = url;
-            this.title = title;
-            this.content = content;
-            this.source = source;
-            this.lang = lang;
-            this.region = region;
-            this.publishedAt = publishedAt;
-        }
+    @Value
+    @Builder(toBuilder = true)
+    public static class UpsertItem {
+        String url;
+        String title;
+        String content;
+        String source;
+        String lang;
+        String region;
+        OffsetDateTime publishedAt;
     }
 
-    public static final class SearchOptions {
-        public final int topK;
-        public final int lookbackDays;
-        public final String lang;
-        public final String region;
+    @Value
+    public static class SearchOptions {
+        int topK;
+        int lookbackDays;
+        String lang;
+        String region;
 
+        @Builder(toBuilder = true)
         public SearchOptions(int topK, int lookbackDays, String lang, String region) {
             this.topK = Math.max(1, topK);
             this.lookbackDays = Math.max(0, lookbackDays);
@@ -284,18 +212,20 @@ public final class NewsItemDao {
         }
     }
 
-    public static final class NewsItemRecord {
-        public final long id;
-        public final String url;
-        public final String title;
-        public final String content;
-        public final String source;
-        public final String lang;
-        public final String region;
-        public final OffsetDateTime publishedAt;
-        public final float[] embedding;
-        public final double similarity;
+    @Value
+    public static class NewsItemRecord {
+        long id;
+        String url;
+        String title;
+        String content;
+        String source;
+        String lang;
+        String region;
+        OffsetDateTime publishedAt;
+        float[] embedding;
+        double similarity;
 
+        @Builder(toBuilder = true)
         public NewsItemRecord(
                 long id,
                 String url,

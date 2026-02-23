@@ -1,4 +1,4 @@
-FROM maven:3.9.11-eclipse-temurin-11 AS builder
+FROM maven:3.9.11-eclipse-temurin-17 AS builder
 
 WORKDIR /build
 
@@ -11,7 +11,7 @@ RUN mvn -q -DskipTests package && \
     JAR_FILE="$(ls target/stockbot-*.jar | grep -v original | head -n 1)" && \
     cp "$JAR_FILE" /build/stockbot.jar
 
-FROM eclipse-temurin:11-jre
+FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 

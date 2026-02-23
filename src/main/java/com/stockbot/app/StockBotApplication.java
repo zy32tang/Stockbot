@@ -1,11 +1,13 @@
 package com.stockbot.app;
 
+import com.stockbot.app.properties.EmailProperties;
+import com.stockbot.app.properties.MailProperties;
+import com.stockbot.app.properties.ScanProperties;
 import com.stockbot.jp.backtest.BacktestRunner;
 import com.stockbot.jp.config.Config;
 import com.stockbot.jp.db.BarDailyDao;
 import com.stockbot.jp.db.Database;
 import com.stockbot.jp.db.MetadataDao;
-import com.stockbot.jp.db.MigrationRunner;
 import com.stockbot.jp.db.RunDao;
 import com.stockbot.jp.db.ScanResultDao;
 import com.stockbot.jp.db.UniverseDao;
@@ -19,7 +21,6 @@ import com.stockbot.jp.output.Mailer;
 import com.stockbot.jp.output.ReportBuilder;
 import com.stockbot.jp.runner.DailyRunner;
 import com.stockbot.jp.vector.EventMemoryService;
-import com.stockbot.jp.vector.VectorSearchService;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
@@ -40,6 +41,12 @@ import org.quartz.SchedulerContext;
 import org.quartz.Trigger;
 import org.quartz.TriggerBuilder;
 import org.quartz.impl.StdSchedulerFactory;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
@@ -50,9 +57,11 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
@@ -61,20 +70,68 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class StockBotApplication {
+@SpringBootApplication
+public final class StockBotApplication implements ApplicationRunner {
     private static final Pattern REPORT_TS_PATTERN = Pattern.compile("jp_daily_(\\d{8}_\\d{6})\\.html", Pattern.CASE_INSENSITIVE);
     private static final Pattern INDICATOR_COVERAGE_PCT_PATTERN = Pattern.compile("INDICATOR_COVERAGE[^\\n%]*\\(([0-9]+(?:\\.[0-9]+)?)%\\)", Pattern.CASE_INSENSITIVE);
     private static volatile boolean LOG_ROUTE_INSTALLED = false;
     private final HtmlPostProcessor htmlPostProcessor = new HtmlPostProcessor();
+    private final Config config;
+    private final ScanProperties scanProperties;
+    private final EmailProperties emailProperties;
+    private final MailProperties mailProperties;
+    private final ObjectProvider<Database> databaseProvider;
+    private final ObjectProvider<UniverseDao> universeDaoProvider;
+    private final ObjectProvider<MetadataDao> metadataDaoProvider;
+    private final ObjectProvider<BarDailyDao> barDailyDaoProvider;
+    private final ObjectProvider<RunDao> runDaoProvider;
+    private final ObjectProvider<ScanResultDao> scanResultDaoProvider;
+    private final ObjectProvider<EventMemoryService> eventMemoryServiceProvider;
     private EventMemoryService eventMemoryService;
     private boolean runtimeSummaryLogged = false;
 
-public static void main(String[] args) {
-        int exit = new StockBotApplication().run(args);
+    public StockBotApplication(
+            Config config,
+            ScanProperties scanProperties,
+            EmailProperties emailProperties,
+            MailProperties mailProperties,
+            ObjectProvider<Database> databaseProvider,
+            ObjectProvider<UniverseDao> universeDaoProvider,
+            ObjectProvider<MetadataDao> metadataDaoProvider,
+            ObjectProvider<BarDailyDao> barDailyDaoProvider,
+            ObjectProvider<RunDao> runDaoProvider,
+            ObjectProvider<ScanResultDao> scanResultDaoProvider,
+            ObjectProvider<EventMemoryService> eventMemoryServiceProvider
+    ) {
+        this.config = config;
+        this.scanProperties = scanProperties;
+        this.emailProperties = emailProperties;
+        this.mailProperties = mailProperties;
+        this.databaseProvider = databaseProvider;
+        this.universeDaoProvider = universeDaoProvider;
+        this.metadataDaoProvider = metadataDaoProvider;
+        this.barDailyDaoProvider = barDailyDaoProvider;
+        this.runDaoProvider = runDaoProvider;
+        this.scanResultDaoProvider = scanResultDaoProvider;
+        this.eventMemoryServiceProvider = eventMemoryServiceProvider;
+    }
+
+    public static void main(String[] args) {
+        SpringApplication app = new SpringApplication(StockBotApplication.class);
+        app.setWebApplicationType(WebApplicationType.NONE);
+        Map<String, Object> defaults = new HashMap<>();
+        defaults.put("spring.config.import", "optional:classpath:config.properties,optional:file:./config.properties");
+        app.setDefaultProperties(defaults);
+        app.run(args);
+    }
+
+    @Override
+    public void run(ApplicationArguments arguments) {
+        int exit = run(arguments.getSourceArgs());
         System.exit(exit);
     }
 
-public int run(String[] args) {
+    public int run(String[] args) {
         Options options = buildOptions();
         CommandLine cmd;
         try {
@@ -91,8 +148,6 @@ public int run(String[] args) {
         }
 
         try {
-            Path workingDir = Path.of(".").toAbsolutePath().normalize();
-            Config config = Config.load(workingDir);
             installLogRoutingIfNeeded(config);
             String mode = resolveMode(config);
             if (!mode.equals("DAILY") && !mode.equals("BACKTEST")) {
@@ -112,28 +167,17 @@ public int run(String[] args) {
                 return 2;
             }
 
-            Database database = new Database(
-                    readDbUrl(config),
-                    readDbUser(config),
-                    readDbPass(config),
-                    readDbSchema(config),
-                    config.getBoolean("db.sql_log.enabled", true)
-            );
+            Database database = databaseProvider.getObject();
+            UniverseDao universeDao = universeDaoProvider.getObject();
+            MetadataDao metadataDao = metadataDaoProvider.getObject();
+            BarDailyDao barDailyDao = barDailyDaoProvider.getObject();
+            RunDao runDao = runDaoProvider.getObject();
+            ScanResultDao scanResultDao = scanResultDaoProvider.getObject();
+            this.eventMemoryService = eventMemoryServiceProvider.getObject();
+
             System.out.println("DB type=" + database.dbType()
                     + ", url=" + database.maskedJdbcUrl()
                     + ", schema=" + database.schema());
-            new MigrationRunner().run(database);
-
-            UniverseDao universeDao = new UniverseDao(database);
-            MetadataDao metadataDao = new MetadataDao(database);
-            BarDailyDao barDailyDao = new BarDailyDao(database);
-            RunDao runDao = new RunDao(database);
-            ScanResultDao scanResultDao = new ScanResultDao(database);
-            this.eventMemoryService = new EventMemoryService(
-                    config,
-                    new VectorSearchService(database),
-                    barDailyDao
-            );
             runDao.recoverDanglingRuns();
 
             if (scheduleEnabled) {
@@ -351,9 +395,16 @@ private boolean needsFreshMarketScan(Optional<RunRow> latestMarket, ZoneId zoneI
     }
 
 private void resetBatchCheckpointOnly(Config config, MetadataDao metadataDao) throws Exception {
-        boolean batchEnabled = config.getBoolean("scan.batch.enabled", true);
-        boolean resumeEnabled = batchEnabled && config.getBoolean("scan.batch.resume_enabled", true);
-        String checkpointKey = config.getString("scan.batch.checkpoint_key", "daily.scan.batch.checkpoint.v1");
+        ScanProperties.Batch batch = scanProperties == null ? null : scanProperties.getBatch();
+        boolean batchEnabled = batch == null || batch.isEnabled();
+        boolean resumeEnabled = batchEnabled && (batch == null || batch.isResumeEnabled());
+        String checkpointKey = "daily.scan.batch.checkpoint.v1";
+        if (batch != null) {
+            String candidate = batch.getCheckpointKey();
+            if (candidate != null && !candidate.trim().isEmpty()) {
+                checkpointKey = candidate.trim();
+            }
+        }
         if (resumeEnabled) {
             metadataDao.delete(checkpointKey);
             System.out.println("Batch checkpoint reset. key=" + checkpointKey);
@@ -397,7 +448,7 @@ private int sendTestDailyReportEmail(
             boolean forceSend
     ) throws Exception {
         logRuntimeConfigSummary(config);
-        boolean sendEmail = config.getBoolean("email.enabled", true);
+        boolean sendEmail = emailProperties == null || emailProperties.isEnabled();
         if (forceSend) {
             sendEmail = true;
         }
@@ -424,7 +475,7 @@ private int sendTestDailyReportEmail(
         }
 
         Mailer mailer = new Mailer();
-        Mailer.Settings settings = mailer.loadSettings(config);
+        Mailer.Settings settings = mailer.loadSettings(config, emailProperties, mailProperties);
         settings.enabled = true;
         ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
         Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
@@ -451,13 +502,13 @@ private int sendTestDailyReportEmail(
     }
 
     private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutcome outcome) throws Exception {
-        boolean sendEmail = config.getBoolean("email.enabled", true);
+        boolean sendEmail = emailProperties == null || emailProperties.isEnabled();
         if (!sendEmail) {
             return;
         }
 
         Mailer mailer = new Mailer();
-        Mailer.Settings settings = mailer.loadSettings(config);
+        Mailer.Settings settings = mailer.loadSettings(config, emailProperties, mailProperties);
         settings.enabled = true;
 
         ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
@@ -496,7 +547,8 @@ private int sendTestDailyReportEmail(
         runtimeSummaryLogged = true;
         int cpu = Runtime.getRuntime().availableProcessors();
         long maxMemGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L);
-        int fetchConcurrent = config.getInt("fetch.concurrent", config.getInt("scan.threads", 8));
+        int scanThreads = scanProperties == null ? 8 : Math.max(1, scanProperties.getThreads());
+        int fetchConcurrent = config.getInt("fetch.concurrent", scanThreads);
         int newsConcurrent = config.getInt("news.concurrent", 10);
         int aiTimeoutSec = config.getInt("ai.timeout_sec", config.getInt("watchlist.ai.timeout_sec", 180));
         int vectorTopK = config.getInt("vector.memory.signal.top_k", 10);
@@ -513,7 +565,7 @@ private int sendTestDailyReportEmail(
     }
 
 private void logDailySections(DailyRunOutcome outcome, Config config) {
-        int referenceTop = Math.max(1, config.getInt("scan.market_reference_top_n", 5));
+        int referenceTop = scanProperties == null ? 5 : Math.max(1, scanProperties.getMarketReferenceTopN());
         System.out.println("watchlist_analysis_count=" + outcome.watchlistCandidates.size());
         printWatchlistLog("watchlist", outcome.watchlistCandidates, outcome.watchlistCandidates.size());
 
@@ -650,47 +702,6 @@ private Options buildOptions() {
         options.addOption(Option.builder().longOpt("novice").desc("send novice action-only mail body (max 10 lines)").build());
         options.addOption(Option.builder().longOpt("help").desc("show help").build());
         return options;
-    }
-
-    private String readDbUrl(Config config) {
-        return firstNonBlank(
-                System.getenv("STOCKBOT_DB_URL"),
-                config.getString("db.url", "jdbc:postgresql://localhost:5432/stockbot")
-        );
-    }
-
-    private String readDbUser(Config config) {
-        return firstNonBlank(
-                System.getenv("STOCKBOT_DB_USER"),
-                config.getString("db.user", "stockbot")
-        );
-    }
-
-    private String readDbPass(Config config) {
-        return firstNonBlank(
-                System.getenv("STOCKBOT_DB_PASS"),
-                config.getString("db.pass", "stockbot")
-        );
-    }
-
-    private String readDbSchema(Config config) {
-        return firstNonBlank(config.getString("db.schema", "stockbot"));
-    }
-
-    private String firstNonBlank(String... values) {
-        if (values == null) {
-            return "";
-        }
-        for (String value : values) {
-            if (value == null) {
-                continue;
-            }
-            String trimmed = value.trim();
-            if (!trimmed.isEmpty()) {
-                return trimmed;
-            }
-        }
-        return "";
     }
 
 private String normalizeMode(String value) {

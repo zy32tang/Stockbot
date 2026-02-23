@@ -1,8 +1,10 @@
 package com.stockbot.jp.db;
 
+import com.stockbot.jp.db.mybatis.MetadataMapper;
+import com.stockbot.jp.db.mybatis.MyBatisSupport;
+import org.apache.ibatis.session.SqlSession;
+
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -19,38 +21,27 @@ public final class MetadataDao {
     }
 
     public Optional<String> get(String key) throws SQLException {
-        String sql = "SELECT meta_value FROM metadata WHERE meta_key = ?";
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, key);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.ofNullable(rs.getString(1));
-                }
-            }
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            MetadataMapper mapper = session.getMapper(MetadataMapper.class);
+            return Optional.ofNullable(mapper.selectMetaValue(key));
         }
-        return Optional.empty();
     }
 
     public void put(String key, String value) throws SQLException {
-        String sql = "INSERT INTO metadata(meta_key, meta_value, updated_at) VALUES(?, ?, ?) " +
-                "ON CONFLICT(meta_key) DO UPDATE SET meta_value=excluded.meta_value, updated_at=excluded.updated_at";
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, key);
-            ps.setString(2, value);
-            ps.setObject(3, now);
-            ps.executeUpdate();
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            MetadataMapper mapper = session.getMapper(MetadataMapper.class);
+            mapper.upsertMeta(key, value, now);
         }
     }
 
     public void delete(String key) throws SQLException {
-        String sql = "DELETE FROM metadata WHERE meta_key = ?";
         try (Connection conn = database.connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, key);
-            ps.executeUpdate();
+             SqlSession session = MyBatisSupport.openSession(conn)) {
+            MetadataMapper mapper = session.getMapper(MetadataMapper.class);
+            mapper.deleteMeta(key);
         }
     }
 }
