@@ -479,11 +479,10 @@ private int sendTestDailyReportEmail(
         settings.enabled = true;
         ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
         Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
-        String subject = String.format(
-                Locale.US,
-                "%s 豈乗律謚･蜻・%s 蛟咎画焚 %d [run_id=%d]",
+        String subject = buildTestDailyReportSubject(
                 settings.subjectPrefix,
-                DateTimeFormatter.ofPattern("yyyy-MM-dd").format(runAt.atZone(zoneId)),
+                runAt,
+                zoneId,
                 outcome.marketReferenceCandidates.size(),
                 outcome.runId
         );
@@ -499,6 +498,24 @@ private int sendTestDailyReportEmail(
             System.out.println("Report generated, but email failed (mail.fail_fast=false). run_id=" + outcome.runId);
         }
         return 0;
+    }
+
+    static String buildTestDailyReportSubject(
+            String subjectPrefix,
+            Instant runAt,
+            ZoneId zoneId,
+            int topCount,
+            long runId
+    ) {
+        String date = DateTimeFormatter.ofPattern("yyyy-MM-dd").format(runAt.atZone(zoneId));
+        return String.format(
+                Locale.US,
+                "%s 日股日报 %s Top%d [run_id=%d]",
+                subjectPrefix,
+                date,
+                topCount,
+                runId
+        );
     }
 
     private void sendDailyMailIfNeeded(CommandLine cmd, Config config, DailyRunOutcome outcome) throws Exception {

@@ -30,11 +30,13 @@ public final class ReportBuilder {
     private final Config config;
     private final ThymeleafReportRenderer renderer;
     private final HtmlPostProcessor htmlPostProcessor;
+    private final I18n i18n;
 
     public ReportBuilder(Config config) {
         this.config = config;
         this.renderer = new ThymeleafReportRenderer();
         this.htmlPostProcessor = new HtmlPostProcessor();
+        this.i18n = new I18n(config);
     }
 
     public enum RunType {
@@ -99,9 +101,13 @@ public final class ReportBuilder {
     public String buildNoviceActionSummary(double indicatorCoveragePct, RunType runType, List<WatchlistAnalysis> watchRows) {
         List<WatchlistAnalysis> rows = sortWatch(watchRows);
         StringBuilder sb = new StringBuilder();
-        sb.append("Conclusion: ");
-        sb.append(indicatorCoveragePct < 50.0 ? "coverage low, reduce risk." : "coverage acceptable.");
-        sb.append("\nRun type: ").append(runType == RunType.CLOSE ? "CLOSE" : "INTRADAY");
+        sb.append(i18n.t("report.novice.conclusion", "结论：")).append(" ");
+        sb.append(indicatorCoveragePct < 50.0
+                ? i18n.t("report.novice.coverage_low", "覆盖率偏低，建议降低风险。")
+                : i18n.t("report.novice.coverage_ok", "覆盖率可接受。"));
+        sb.append("\n")
+                .append(i18n.t("report.novice.run_type", "运行类型："))
+                .append(runTypeLabel(runType));
         int used = 0;
         for (WatchlistAnalysis row : rows) {
             if (row == null) {
@@ -111,7 +117,7 @@ public final class ReportBuilder {
             if ("WAIT".equals(action)) {
                 continue;
             }
-            sb.append("\n[").append(action).append("] ")
+            sb.append("\n[").append(watchActionLabel(action)).append("] ")
                     .append(blankTo(row.displayName, row.ticker))
                     .append(" score=").append(fmt1(row.technicalScore));
             used++;
@@ -120,7 +126,7 @@ public final class ReportBuilder {
             }
         }
         if (used == 0) {
-            sb.append("\nNo action.");
+            sb.append("\n").append(i18n.t("report.novice.no_action", "暂无操作建议。"));
         }
         return sb.toString();
     }
@@ -150,38 +156,41 @@ public final class ReportBuilder {
         }
 
         Map<String, Object> view = new HashMap<>();
-        view.put("pageTitle", "StockBot JP Daily Report");
-        view.put("reportTitle", "StockBot Daily Report");
+        view.put("pageTitle", i18n.t("report.page.title", "StockBot 日股每日报告"));
+        view.put("reportTitle", i18n.t("report.title", "StockBot 日报"));
         view.put("topTiles", List.of(
-                kv("key", "Run Time (JST)", "value", DISPLAY_TS.format(startedAt.atZone(zoneId))),
-                kv("key", "Fetch Coverage", "value", scannedSize + " / " + Math.max(1, universeSize)),
-                kv("key", "Candidates", "value", Integer.toString(candidateSize)),
-                kv("key", "TopN", "value", Integer.toString(topN)),
-                kv("key", "Run Type", "value", runType == RunType.CLOSE ? "CLOSE" : "INTRADAY")
+                kv("key", i18n.t("report.tile.run_time", "运行时间（JST）"), "value", DISPLAY_TS.format(startedAt.atZone(zoneId))),
+                kv("key", i18n.t("report.tile.fetch_coverage", "抓取覆盖率"), "value", scannedSize + " / " + Math.max(1, universeSize)),
+                kv("key", i18n.t("report.tile.candidates", "候选数"), "value", Integer.toString(candidateSize)),
+                kv("key", i18n.t("report.tile.top_n", "TopN"), "value", Integer.toString(topN)),
+                kv("key", i18n.t("report.tile.run_type", "运行类型"), "value", runTypeLabel(runType))
         ));
         view.put("failureStats", List.of(
-                "timeout: " + summary.requestFailureCount(ScanFailureReason.TIMEOUT),
-                "parse_error: " + summary.requestFailureCount(ScanFailureReason.PARSE_ERROR),
-                "stale: " + summary.failureCount(ScanFailureReason.STALE),
-                "other: " + summary.failureCount(ScanFailureReason.OTHER)
+                i18n.t("report.failure.timeout", "超时") + ": " + summary.requestFailureCount(ScanFailureReason.TIMEOUT),
+                i18n.t("report.failure.parse_error", "解析错误") + ": " + summary.requestFailureCount(ScanFailureReason.PARSE_ERROR),
+                i18n.t("report.failure.stale", "过期数据") + ": " + summary.failureCount(ScanFailureReason.STALE),
+                i18n.t("report.failure.other", "其他") + ": " + summary.failureCount(ScanFailureReason.OTHER)
         ));
         view.put("hasSuspectPrice", watchRows.stream().anyMatch(r -> r != null && r.priceSuspect));
         view.put("suspectTickers", suspectTickers(watchRows));
-        view.put("coverageSource", diagnostics == null ? "UNKNOWN" : blankTo(diagnostics.coverageSource, "UNKNOWN"));
-        view.put("partialMessage", (marketScanPartial || "PARTIAL".equalsIgnoreCase(blankTo(marketScanStatus, ""))) ? "Market scan is partial." : "");
+        String unknownText = i18n.t("report.coverage.unknown", "未知");
+        view.put("coverageSource", diagnostics == null ? unknownText : blankTo(diagnostics.coverageSource, unknownText));
+        view.put("partialMessage", (marketScanPartial || "PARTIAL".equalsIgnoreCase(blankTo(marketScanStatus, "")))
+                ? i18n.t("report.partial.market_scan", "市场扫描结果为部分完成。")
+                : "");
         view.put("systemStatusLines", List.of(
-                "indicator.core=" + config.getString("indicator.core", "sma20,sma60,rsi14,atr14"),
-                "scan.min_score=" + config.getString("scan.min_score", "55"),
-                "filter.min_signals=" + config.getString("filter.min_signals", "3")
+                i18n.t("report.system.indicator_core", "指标核心") + "=" + config.getString("indicator.core", "sma20,sma60,rsi14,atr14"),
+                i18n.t("report.system.min_score", "扫描最低分") + "=" + config.getString("scan.min_score", "55"),
+                i18n.t("report.system.min_signals", "最少信号数") + "=" + config.getString("filter.min_signals", "3")
         ));
         view.put("noviceLines", List.of(
-                "Use only strongest names.",
-                "Keep positions small when coverage is low."
+                i18n.t("report.novice.line1", "优先关注最强标的。"),
+                i18n.t("report.novice.line2", "覆盖率偏低时请控制仓位。")
         ));
         view.put("actionAdvice", kv(
                 "css", "info",
-                "level", "CHECK",
-                "reason", "Review watchlist and top cards together.",
+                "level", i18n.t("report.action.level.check", "检查"),
+                "reason", i18n.t("report.action.reason", "请结合自选与 Top5 结果综合判断。"),
                 "singleMaxPct", fmt1(config.getDouble("report.position.max_single_pct", 5.0)),
                 "totalMaxPct", fmt1(config.getDouble("report.position.max_total_pct", 50.0))
         ));
@@ -192,14 +201,16 @@ public final class ReportBuilder {
             if (row == null) {
                 continue;
             }
+            String action = watchAction(row);
             watchTable.add(kv(
                     "priceSuspect", row.priceSuspect,
                     "name", blankTo(row.displayName, row.ticker),
-                    "traceSummary", "source=" + blankTo(row.dataSource, "-") + " | ts=" + blankTo(row.priceTimestamp, "-"),
+                    "traceSummary", i18n.t("report.trace.source", "来源") + "=" + blankTo(row.dataSource, "-")
+                            + " | " + i18n.t("report.trace.ts", "时间") + "=" + blankTo(row.priceTimestamp, "-"),
                     "lastClose", fmt2(row.lastClose),
-                    "action", watchAction(row),
-                    "actionCss", watchActionCss(watchAction(row)),
-                    "reasons", List.of(blankTo(row.gateReason, "n/a")),
+                    "action", watchActionLabel(action),
+                    "actionCss", watchActionCss(action),
+                    "reasons", List.of(blankTo(row.gateReason, i18n.t("report.common.na", "无"))),
                     "entryRange", "-",
                     "stopLoss", "-",
                     "takeProfit", "-"
@@ -225,25 +236,28 @@ public final class ReportBuilder {
                     "latestPrice", fmt2(candidate.close),
                     "score", fmt1(candidate.score),
                     "riskCss", candidate.score >= 70 ? "good" : "warn",
-                    "riskText", candidate.score >= 70 ? "LOW" : "MID",
-                    "planLine", "Check chart before execution.",
+                    "riskText", candidate.score >= 70
+                            ? i18n.t("report.card.risk.low", "低")
+                            : i18n.t("report.card.risk.mid", "中"),
+                    "planLine", i18n.t("report.card.plan", "执行前请先复核图形与风险。"),
                     "reasons", List.of("score=" + fmt1(candidate.score))
             ));
         }
         view.put("topCards", kv(
-                "funnelStats", List.of("candidates_from_market_scan=" + (marketReferenceCandidates == null ? 0 : marketReferenceCandidates.size())),
+                "funnelStats", List.of(i18n.t("report.topcards.funnel_from_market", "市场扫描候选数")
+                        + "=" + (marketReferenceCandidates == null ? 0 : marketReferenceCandidates.size())),
                 "mainReasons", List.of(),
                 "skipReason", "",
                 "gateLines", List.of(),
                 "noviceWarn", false,
-                "emptyMessage", cardRows.isEmpty() ? "No Top5 candidates." : "",
+                "emptyMessage", cardRows.isEmpty() ? i18n.t("report.topcards.empty", "暂无 Top5 候选。") : "",
                 "cards", cardRows,
                 "excludedDerivatives", ""
         ));
 
         view.put("disclaimerLines", List.of(
-                "Decision support only, not investment advice.",
-                "Validate prices and risk before placing orders."
+                i18n.t("report.disclaimer.1", "本报告仅用于决策辅助，不构成投资建议。"),
+                i18n.t("report.disclaimer.2", "下单前请再次核验价格与风险。")
         ));
         view.put("hasConfigSnapshot", false);
         view.put("configRows", List.of());
@@ -282,6 +296,20 @@ public final class ReportBuilder {
         return "WAIT";
     }
 
+    private String watchActionLabel(String action) {
+        if ("BUY".equals(action)) return i18n.t("report.action.buy", "买入");
+        if ("WATCH".equals(action)) return i18n.t("report.action.watch", "关注");
+        if ("AVOID".equals(action)) return i18n.t("report.action.avoid", "回避");
+        return i18n.t("report.action.wait", "观望");
+    }
+
+    private String runTypeLabel(RunType runType) {
+        if (runType == RunType.CLOSE) {
+            return i18n.t("report.run_type.close", "收盘后");
+        }
+        return i18n.t("report.run_type.intraday", "盘中");
+    }
+
     private String watchActionCss(String action) {
         if ("BUY".equals(action)) return "good";
         if ("WATCH".equals(action)) return "warn";
@@ -298,7 +326,7 @@ public final class ReportBuilder {
     }
 
     private List<String> splitLines(String text) {
-        if (text == null || text.trim().isEmpty()) return List.of("No AI summary.");
+        if (text == null || text.trim().isEmpty()) return List.of(i18n.t("report.ai.none", "暂无 AI 摘要。"));
         List<String> out = new ArrayList<>();
         for (String line : text.split("\\r?\\n")) {
             String t = line.trim();

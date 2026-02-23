@@ -1,0 +1,4 @@
+# Enforce UTF-8 for source and report resource files.
+*.java text eol=lf working-tree-encoding=UTF-8
+*.properties text eol=lf working-tree-encoding=UTF-8
+*.html text eol=lf working-tree-encoding=UTF-8

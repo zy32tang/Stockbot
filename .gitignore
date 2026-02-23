@@ -44,6 +44,7 @@ $RECYCLE.BIN/
 *.local
 *.secret
 *.properties
+!src/main/resources/i18n/*.properties
 !/.mvn/wrapper/maven-wrapper.properties
 config.local.properties
 watchlist.local.txt
