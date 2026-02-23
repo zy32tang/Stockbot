@@ -354,7 +354,6 @@ public final class Config {
         defaults.put("scan.market_reference_top_n", "5");
         defaults.put("scan.max_universe_size", "0");
         defaults.put("scan.min_history_bars", "180");
-        defaults.put("scan.fresh_days", "2");
         defaults.put("scan.cache.prefer_enabled", "true");
         defaults.put("scan.cache.fresh_days", "2");
         defaults.put("scan.network.retry_when_cache_exists", "false");
@@ -457,6 +456,11 @@ public final class Config {
         defaults.put("watchlist.news.query_variants", "10");
         defaults.put("news.query.max_variants", "6");
         defaults.put("news.query.max_results_per_variant", "8");
+        defaults.put("news.vector.query_expand.enabled", "true");
+        defaults.put("news.vector.query_expand.top_k", "8");
+        defaults.put("news.vector.query_expand.max_extra_queries", "2");
+        defaults.put("news.vector.query_expand.rounds", "2");
+        defaults.put("news.vector.query_expand.seed_count", "3");
         defaults.put("news.source.google_rss", "true");
         defaults.put("news.source.bing", "true");
         defaults.put("news.source.yahoo_finance", "true");
@@ -492,26 +496,6 @@ public final class Config {
         defaults.put("vector.memory.news.max_cases", "5");
         defaults.put("vector.memory.signal.top_k", "10");
         defaults.put("vector.memory.signal.max_cases", "20");
-
-        defaults.put("polymarket.enabled", "true");
-        defaults.put("polymarket.gamma_base_url", "https://gamma-api.polymarket.com");
-        defaults.put("polymarket.data_base_url", "https://data-api.polymarket.com");
-        defaults.put("polymarket.keywords", "semiconductor,tariffs,japan,china,supply chain");
-        defaults.put("polymarket.search_limit", "40");
-        defaults.put("polymarket.top_n", "3");
-        defaults.put("polymarket.timeout_sec", "12");
-        defaults.put("polymarket.topic_map_path", "");
-        defaults.put("polymarket.baseUrl", "https://gamma-api.polymarket.com");
-        defaults.put("polymarket.impact.mode", "vector");
-        defaults.put("polymarket.vector.top_k", "5");
-        defaults.put("polymarket.vector.min_similarity", "0.35");
-        defaults.put("polymarket.refresh.max_markets", "5000");
-        defaults.put("polymarket.refresh.ttl_hours", "12");
-        defaults.put("polymarket.weights.sim", "0.55");
-        defaults.put("polymarket.weights.recency", "0.20");
-        defaults.put("polymarket.weights.liquidity", "0.15");
-        defaults.put("polymarket.weights.confidence", "0.10");
-        defaults.put("polymarket.watch_impact_limit", "4");
         defaults.put("ticker.name.cache.ttl_hours", "168");
         defaults.put("ticker.name.cache.path", "");
         defaults.put("mail.dry_run", "false");

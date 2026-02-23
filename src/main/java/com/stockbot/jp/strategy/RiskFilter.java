@@ -6,6 +6,7 @@ import com.stockbot.jp.model.RiskDecision;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 模块说明：RiskFilter（class）。
@@ -52,35 +53,54 @@ public final class RiskFilter {
         double liquidityPenalty = Math.max(0.0, config.getDouble("risk.penalty.liquidity", 12.0));
 
         List<String> flags = new ArrayList<>();
+        List<String> reasons = new ArrayList<>();
         double penalty = 0.0;
         boolean pass = true;
 
         if (ind.atrPct > maxAtrPct) {
             flags.add("atr_too_high");
             penalty += Math.min(atrPenaltyCap, (ind.atrPct - maxAtrPct) * atrPenaltyScale);
+            reasons.add(String.format(Locale.US, "ATR波动偏高(%.2f%% > %.2f%%)", ind.atrPct, maxAtrPct));
             if (ind.atrPct > maxAtrPct * atrFailMultiplier) {
                 pass = false;
+                reasons.add(String.format(Locale.US, "ATR超出失效阈值(%.2f%%)，触发风控拒绝", ind.atrPct));
             }
         }
         if (ind.volatility20Pct > maxVolatilityPct) {
             flags.add("volatility_too_high");
             penalty += Math.min(volatilityPenaltyCap, (ind.volatility20Pct - maxVolatilityPct) * volatilityPenaltyScale);
+            reasons.add(String.format(Locale.US, "近期波动过高，超出系统安全阈值(%.2f%% > %.2f%%)", ind.volatility20Pct, maxVolatilityPct));
             if (ind.volatility20Pct > maxVolatilityPct * volatilityFailMultiplier) {
                 pass = false;
+                reasons.add(String.format(Locale.US, "波动率触发失效阈值(%.2f%%)", ind.volatility20Pct));
             }
         }
         if (Math.abs(ind.drawdown120Pct) > maxDrawdownAbs) {
             flags.add("drawdown_too_deep");
             penalty += Math.min(drawdownPenaltyCap, (Math.abs(ind.drawdown120Pct) - maxDrawdownAbs) * drawdownPenaltyScale);
             pass = false;
+            reasons.add(String.format(Locale.US, "回撤过深(%.2f%%)，超过风控上限%.2f%%", ind.drawdown120Pct, maxDrawdownAbs));
         }
         if (ind.volumeRatio20 < minVolumeRatio) {
             flags.add("liquidity_weak");
             penalty += liquidityPenalty;
             pass = false;
+            reasons.add(String.format(Locale.US, "成交活跃度不足(量比%.2f < %.2f)", ind.volumeRatio20, minVolumeRatio));
         }
 
-        return new RiskDecision(pass, penalty, flags);
+        if (Double.isFinite(ind.lastClose) && Double.isFinite(ind.sma20) && ind.lastClose < ind.sma20) {
+            reasons.add(String.format(Locale.US, "跌破20日均线支撑(当前价:%.2f, SMA20:%.2f)", ind.lastClose, ind.sma20));
+        }
+
+        if (reasons.isEmpty()) {
+            reasons.add("风险指标正常，未触发风控扣分");
+        }
+
+        return new RiskDecision(pass, round2(penalty), flags, reasons);
+    }
+
+    private double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
 /**

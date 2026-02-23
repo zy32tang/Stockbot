@@ -23,8 +23,11 @@ public final class ReasonJsonBuilder {
         JSONObject root = new JSONObject();
         root.put("filter_passed", filter.passed);
         root.put("risk_passed", risk.passed);
+        root.put("score_passed", score.passed);
         root.put("filter_reasons", new JSONArray(filter.reasons));
         root.put("risk_flags", new JSONArray(risk.flags));
+        root.put("risk_reasons", new JSONArray(risk.reasons));
+        root.put("score_reasons", new JSONArray(score.reasons));
         root.put("filter_metrics", new JSONObject(filter.metrics));
         root.put("score_breakdown", new JSONObject(score.breakdown));
         return root.toString();

@@ -14,9 +14,6 @@ import com.stockbot.jp.model.ScoredCandidate;
 import com.stockbot.jp.model.WatchlistAnalysis;
 import com.stockbot.jp.plan.TradePlan;
 import com.stockbot.jp.plan.TradePlanBuilder;
-import com.stockbot.jp.polymarket.PolymarketSignalReport;
-import com.stockbot.jp.polymarket.PolymarketTopicSignal;
-import com.stockbot.jp.polymarket.PolymarketWatchImpact;
 import com.stockbot.jp.strategy.CandidateFilter;
 import com.stockbot.jp.strategy.RiskFilter;
 import com.stockbot.jp.strategy.ScoringEngine;
@@ -33,7 +30,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -42,9 +38,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 模块说明：ReportBuilder（class）。
- * 主要职责：承载 output 模块 的关键逻辑，对外提供可复用的调用入口。
- * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ * 讓｡蝮苓ｯｴ譏趣ｼ啌eportBuilder・・lass・峨・
+ * 荳ｻ隕∬′雍｣・壽価霓ｽ output 讓｡蝮・逧・・髞ｮ騾ｻ霎托ｼ悟ｯｹ螟匁署萓帛庄螟咲畑逧・ｰ・畑蜈･蜿｣縲・
+ * 菴ｿ逕ｨ蟒ｺ隶ｮ・壻ｿｮ謾ｹ隸･邀ｻ蝙区慮蠎泌酔豁･蜈ｳ豕ｨ荳贋ｸ区ｸｸ隹・畑・碁∩蜈榊ｽｱ蜩肴紛菴捺ｵ∫ｨ狗ｨｳ螳壽ｧ縲・
  */
 public final class ReportBuilder {
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
@@ -58,19 +54,15 @@ public final class ReportBuilder {
 
     private final Config config;
     private final TradePlanBuilder tradePlanBuilder;
-    private final ThymeleafReportRenderer thymeleafRenderer;
-    private final HtmlPostProcessor htmlPostProcessor;
 
 /**
- * 方法说明：ReportBuilder，负责初始化对象并装配依赖参数。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啌eportBuilder・瑚ｴ溯ｴ｣蛻晏ｧ句喧蟇ｹ雎｡蟷ｶ陬・・萓晁ｵ門盾謨ｰ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     public ReportBuilder(Config config) {
         this.config = config;
         this.tradePlanBuilder = new TradePlanBuilder(config);
-        this.thymeleafRenderer = new ThymeleafReportRenderer();
-        this.htmlPostProcessor = new HtmlPostProcessor();
     }
 
     public enum RunType {
@@ -85,9 +77,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：detectRunType，负责检测条件并输出判断结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ單etectRunType・瑚ｴ溯ｴ｣譽豬区擅莉ｶ蟷ｶ霎灘・蛻､譁ｭ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     public static RunType detectRunType(Instant startedAt, ZoneId zoneId) {
         if (startedAt == null || zoneId == null) {
@@ -97,9 +89,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：writeDailyReport，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗹riteDailyReport・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     public Path writeDailyReport(
             Path reportDir,
@@ -118,48 +110,6 @@ public final class ReportBuilder {
             ScanResultSummary scanSummary,
             boolean marketScanPartial,
             String marketScanStatus,
-            Diagnostics diagnostics
-    ) throws Exception {
-        return writeDailyReport(
-                reportDir,
-                startedAt,
-                zoneId,
-                universeSize,
-                scannedSize,
-                candidateSize,
-                topN,
-                watchlist,
-                watchlistCandidates,
-                marketReferenceCandidates,
-                minScore,
-                runType,
-                previousScoreByTicker,
-                scanSummary,
-                marketScanPartial,
-                marketScanStatus,
-                null,
-                diagnostics
-        );
-    }
-
-    public Path writeDailyReport(
-            Path reportDir,
-            Instant startedAt,
-            ZoneId zoneId,
-            int universeSize,
-            int scannedSize,
-            int candidateSize,
-            int topN,
-            List<String> watchlist,
-            List<WatchlistAnalysis> watchlistCandidates,
-            List<ScoredCandidate> marketReferenceCandidates,
-            double minScore,
-            RunType runType,
-            Map<String, Double> previousScoreByTicker,
-            ScanResultSummary scanSummary,
-            boolean marketScanPartial,
-            String marketScanStatus,
-            PolymarketSignalReport polymarketReport,
             Diagnostics diagnostics
     ) throws Exception {
         Files.createDirectories(reportDir);
@@ -181,7 +131,6 @@ public final class ReportBuilder {
                 scanSummary,
                 marketScanPartial,
                 marketScanStatus,
-                polymarketReport,
                 diagnostics
         );
         Files.writeString(report, html, StandardCharsets.UTF_8);
@@ -200,9 +149,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：buildHtml，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喘uildHtml・瑚ｴ溯ｴ｣譫・ｻｺ逶ｮ譬・ｯｹ雎｡謌冶ｾ灘・蜀・ｮｹ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     public String buildHtml(
             Instant startedAt,
@@ -220,7 +169,6 @@ public final class ReportBuilder {
             ScanResultSummary scanSummary,
             boolean marketScanPartial,
             String marketScanStatus,
-            PolymarketSignalReport polymarketReport,
             Diagnostics diagnostics
     ) {
         List<WatchlistAnalysis> watchRows = sortedWatch(watchlistCandidates);
@@ -270,11 +218,14 @@ public final class ReportBuilder {
         boolean isClose = runType == RunType.CLOSE;
         boolean hideEntryInIntraday = config.getBoolean("report.mode.intraday.hideEntry", true);
 
-        Map<String, Object> templateVars = new HashMap<>();
-        templateVars.put("view", buildTemplateView(
+        StringBuilder sb = new StringBuilder(64_000);
+        appendPageHeader(sb);
+        appendTopHeader(
+                sb,
                 startedAt,
                 zoneId,
                 horizonDays,
+                universeSize,
                 candidateSize,
                 topN,
                 runType,
@@ -292,24 +243,42 @@ public final class ReportBuilder {
                 watchlistCoverage,
                 marketScanPartial,
                 marketScanStatus,
+                marketRunDenominator
+        );
+        appendNoviceDecisionCard(sb, advice, fetchCoveragePct, indicatorCoveragePct, runType, watchRows, topSelection, diag);
+        appendActionAdvice(sb, advice, singleMaxPct, totalMaxPct);
+        appendWatchTableV2(sb, watchRows, isClose);
+        appendWatchAiSummary(sb, watchRows);
+        appendTopCardsV2(sb, topSelection, isClose, hideEntryInIntraday, diag);
+        appendDisclaimer(sb);
+        appendConfigOverviewCollapsed(sb, diag);
+        appendDiagnosticsCollapsed(sb, diag);
+        appendSystemStatus(sb, summary, diag);
+        appendSystemRunLogs(
+                sb,
+                summary,
+                fetchCoverageCount,
+                fetchCoverageDenominator,
+                fetchCoveragePct,
+                indicatorCoverageCount,
+                indicatorCoverageDenominator,
+                indicatorCoveragePct,
+                marketRunCoverage,
+                watchlistCoverage,
+                coverageSource,
+                marketScanPartial,
+                marketScanStatus,
                 marketRunDenominator,
-                advice,
-                singleMaxPct,
-                totalMaxPct,
-                topSelection,
-                isClose,
-                hideEntryInIntraday,
-                polymarketReport,
-                diag
-        ));
-        String rendered = thymeleafRenderer.renderDailyReport(templateVars);
-        return htmlPostProcessor.cleanDocument(rendered);
+                watchRows
+        );
+        sb.append("</div></body></html>");
+        return sb.toString();
     }
 
 /**
- * 方法说明：buildMailText，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喘uildMailText・瑚ｴ溯ｴ｣譫・ｻｺ逶ｮ譬・ｯｹ雎｡謌冶ｾ灘・蜀・ｮｹ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     public String buildMailText(
             Instant startedAt,
@@ -341,7 +310,7 @@ public final class ReportBuilder {
                 .thenComparingDouble(x -> x.row == null ? 0.0 : x.row.technicalScore).reversed());
 
         StringBuilder sb = new StringBuilder(512);
-        sb.append("今日结论：").append(noviceConclusion(indicatorCoveragePct)).append("\n");
+        sb.append("莉頑律扈楢ｮｺ・・).append(noviceConclusion(indicatorCoveragePct)).append("\n");
         int count = 0;
         for (WatchDecisionRow row : rows) {
             if (row == null || row.decision == null || "WAIT".equals(row.decision.action)) {
@@ -349,20 +318,20 @@ public final class ReportBuilder {
             }
             WatchlistAnalysis w = row.row;
             TradePlan p = row.decision.plan;
-            String reason = row.decision.reason1 + (blankTo(row.decision.reason2, "").isEmpty() ? "" : ("；" + row.decision.reason2));
+            String reason = row.decision.reason1 + (blankTo(row.decision.reason2, "").isEmpty() ? "" : ("・・ + row.decision.reason2));
             sb.append("[")
                     .append(row.decision.action)
                     .append("] ")
                     .append(safeText(plainCode(w)))
                     .append(" ")
                     .append(safeText(plainName(w)))
-                    .append(" 现价")
+                    .append(" 邇ｰ莉ｷ")
                     .append(fmt2(w == null ? Double.NaN : w.lastClose))
-                    .append(" 止损")
+                    .append(" 豁｢謐・)
                     .append(p != null && p.valid ? fmt2(p.stopLoss) : "-")
-                    .append(" 目标")
+                    .append(" 逶ｮ譬・)
                     .append(p != null && p.valid ? fmt2(p.takeProfit) : "-")
-                    .append(" 理由:")
+                    .append(" 逅・罰:")
                     .append(safeText(reason))
                     .append("\n");
             count++;
@@ -371,386 +340,15 @@ public final class ReportBuilder {
             }
         }
         if (count == 0) {
-            sb.append("今日无明确动作（仅观察）");
+            sb.append("莉頑律譌譏守｡ｮ蜉ｨ菴懶ｼ井ｻ・ｧょｯ滂ｼ・);
         }
         return sb.toString().trim();
     }
 
-    private Map<String, Object> buildTemplateView(
-            Instant startedAt,
-            ZoneId zoneId,
-            int horizonDays,
-            int candidateSize,
-            int topN,
-            RunType runType,
-            int fetchCoverageCount,
-            int fetchCoverageDenominator,
-            double fetchCoveragePct,
-            int indicatorCoverageCount,
-            int indicatorCoverageDenominator,
-            double indicatorCoveragePct,
-            String coverageScopeLabel,
-            String coverageSource,
-            ScanResultSummary summary,
-            List<WatchlistAnalysis> watchRows,
-            String marketRunCoverage,
-            String watchlistCoverage,
-            boolean marketScanPartial,
-            String marketScanStatus,
-            int marketRunDenominator,
-            ActionAdvice advice,
-            double singleMaxPct,
-            double totalMaxPct,
-            CandidateSelection topSelection,
-            boolean isClose,
-            boolean hideEntryInIntraday,
-            PolymarketSignalReport polymarketReport,
-            Diagnostics diagnostics
-    ) {
-        Map<String, Object> view = new HashMap<>();
-        view.put("pageTitle", "StockBot JP Daily Report");
-        view.put("reportTitle", "StockBot 决策辅助报告");
-
-        List<Map<String, Object>> topTiles = new ArrayList<>();
-        topTiles.add(kv("key", "运行时间 (JST)", "value", DISPLAY_TS.format(startedAt.atZone(zoneId))));
-        topTiles.add(kv("key", "预测周期", "value", horizonDays + " 天"));
-        topTiles.add(kv("key", "FETCH_COVERAGE", "value", fetchCoverageCount + " / " + fetchCoverageDenominator + " (" + fmt1(fetchCoveragePct) + "%)"));
-        topTiles.add(kv("key", "INDICATOR_COVERAGE", "value", indicatorCoverageCount + " / " + indicatorCoverageDenominator + " (" + fmt1(indicatorCoveragePct) + "%)"));
-        topTiles.add(kv("key", "market_run_coverage", "value", blankTo(marketRunCoverage, "-")));
-        topTiles.add(kv("key", "watchlist_coverage", "value", blankTo(watchlistCoverage, "-")));
-        topTiles.add(kv("key", "今日候选数量", "value", String.valueOf(candidateSize)));
-        topTiles.add(kv("key", "今日 TopN 数量", "value", String.valueOf(topN)));
-        topTiles.add(kv("key", "邮件类型", "value", runType == RunType.CLOSE ? "CLOSE (15:00)" : "INTRADAY (11:30)"));
-        topTiles.add(kv("key", "coverage_scope", "value", blankTo(coverageScopeLabel, "MARKET")));
-        view.put("topTiles", topTiles);
-
-        int suspect = countPriceSuspects(watchRows);
-        view.put("hasSuspectPrice", suspect > 0);
-        view.put("suspectTickers", joinSuspectTickers(watchRows));
-
-        List<String> failureStats = new ArrayList<>();
-        failureStats.add("timeout: " + summary.requestFailureCount(ScanFailureReason.TIMEOUT));
-        failureStats.add("http_404/no_data: " + (summary.requestFailureCount(ScanFailureReason.HTTP_404_NO_DATA) + summary.failureCount(ScanFailureReason.HTTP_404_NO_DATA)));
-        failureStats.add("parse_error: " + summary.requestFailureCount(ScanFailureReason.PARSE_ERROR));
-        failureStats.add("stale: " + summary.failureCount(ScanFailureReason.STALE));
-        failureStats.add("history_short: " + summary.failureCount(ScanFailureReason.HISTORY_SHORT));
-        failureStats.add("filtered_non_tradable: " + summary.failureCount(ScanFailureReason.FILTERED_NON_TRADABLE));
-        failureStats.add("rate_limit: " + summary.requestFailureCount(ScanFailureReason.RATE_LIMIT));
-        failureStats.add("other: " + (summary.failureCount(ScanFailureReason.OTHER) + summary.requestFailureCount(ScanFailureReason.OTHER)));
-        view.put("failureStats", failureStats);
-        view.put("coverageSource", blankTo(coverageSource, "UNKNOWN"));
-        view.put(
-                "partialMessage",
-                (marketScanPartial || "PARTIAL".equalsIgnoreCase(blankTo(marketScanStatus, "")))
-                        ? ("覆盖率低：market scan=PARTIAL（仅处理 " + Math.max(0, marketRunDenominator) + " 标的）")
-                        : ""
-        );
-
-        FeatureResolution perf = diagnostics == null ? null : diagnostics.feature("report.metrics.top5_perf");
-        if (perf == null) {
-            perf = new FeatureResolution(
-                    "report.metrics.top5_perf.enabled",
-                    config.getBoolean("report.metrics.top5_perf.enabled", false),
-                    false,
-                    FeatureStatus.DISABLED_NOT_IMPLEMENTED,
-                    CauseCode.FEATURE_NOT_IMPLEMENTED,
-                    OWNER_TOP5,
-                    "feature not implemented",
-                    ""
-            );
-        }
-        List<String> systemStatusLines = new ArrayList<>();
-        systemStatusLines.add("1) 综合分量纲统一为 0~100（自选股与全市场一致）。");
-        systemStatusLines.add("2) 指标引擎：" + String.join(", ", IndicatorEngine.computedIndicators()));
-        systemStatusLines.add("3) 筛选模块(CandidateFilter)：hard 条件 + signals，hard="
-                + String.join(", ", CandidateFilter.hardRuleNames())
-                + "，signals="
-                + String.join(", ", CandidateFilter.signalRuleNames()));
-        systemStatusLines.add("4) 风控模块(RiskFilter)：" + String.join(", ", RiskFilter.riskFlagNames()));
-        systemStatusLines.add("5) 评分模块(ScoringEngine)："
-                + String.join(", ", ScoringEngine.factorNames())
-                + "（risk penalty clamp 0..100）");
-        systemStatusLines.add("6) 当前关键阈值："
-                + "scan.min_score=" + config.getString("scan.min_score")
-                + "，filter.min_signals=" + config.getString("filter.min_signals")
-                + "，filter.hard.max_drop_3d_pct=" + config.getString("filter.hard.max_drop_3d_pct")
-                + "，rr.min=" + config.getString("rr.min")
-                + "，plan.entry.buffer_pct=" + config.getString("plan.entry.buffer_pct")
-                + "，plan.stop.atr_mult=" + config.getString("plan.stop.atr_mult"));
-        systemStatusLines.add("7) 近30日 Top5 胜率/最大回撤：" + renderFeatureStatusV2("report.metrics.top5_perf.enabled", perf, summary));
-        view.put("systemStatusLines", systemStatusLines);
-
-        WatchDecisionRow best = pickBestWatchDecision(watchRows, isClose);
-        List<String> noviceLines = new ArrayList<>();
-        noviceLines.add("1) 今日结论：" + noviceConclusion(indicatorCoveragePct));
-        if (best == null || best.decision == null || "WAIT".equals(best.decision.action)) {
-            noviceLines.add("2) 今日最值得看的自选股：无（今日信号不足）");
-        } else {
-            noviceLines.add("2) 今日最值得看的自选股：" + watchName(best.row) + " [" + best.decision.action + "]");
-        }
-        noviceLines.add("3) 今日买入条件：分数≥80 且 信号=触发");
-        noviceLines.add("4) 今日买入条件：风险≠高");
-        noviceLines.add("5) 今日买入条件：有入场/止损（plan valid）");
-        noviceLines.add("6) 今日卖出/减仓条件：跌破止损 -> 直接止损");
-        noviceLines.add("7) 今日卖出/减仓条件：分数跌破65 且 风险=高 -> 减仓/退出");
-        if (indicatorCoveragePct < 50.0) {
-            noviceLines.add("8) 数据可信度：指标覆盖不足（" + fmt1(indicatorCoveragePct) + "%），今日不要依据 Top5 做交易");
-        } else {
-            noviceLines.add("8) 数据可信度：指标覆盖正常（" + fmt1(indicatorCoveragePct) + "%），可参考 Top5，但仍需按止损执行");
-        }
-        view.put("noviceLines", noviceLines);
-
-        Map<String, Object> actionAdvice = new HashMap<>();
-        actionAdvice.put("css", advice.css);
-        actionAdvice.put("level", advice.level);
-        actionAdvice.put("reason", advice.reason);
-        actionAdvice.put("singleMaxPct", fmt1(singleMaxPct * 100.0));
-        actionAdvice.put("totalMaxPct", fmt1(totalMaxPct * 100.0));
-        view.put("actionAdvice", actionAdvice);
-
-        List<Map<String, Object>> watchTableRows = new ArrayList<>();
-        if (watchRows != null) {
-            for (WatchlistAnalysis row : watchRows) {
-                WatchDecision decision = decideForWatchAction(row, isClose);
-                TradePlan plan = decision.plan;
-                JSONObject trace = safeJson(row == null ? "" : row.technicalReasonsJson).optJSONObject("fetch_trace");
-                List<String> traceParts = new ArrayList<>();
-                traceParts.add("data_source=" + (row == null ? "" : safe(row.dataSource)));
-                traceParts.add("price_timestamp=" + (row == null ? "" : safe(row.priceTimestamp)));
-                traceParts.add("bars_count=" + (row == null ? 0 : row.barsCount));
-                traceParts.add("cache_hit=" + (row != null && row.cacheHit));
-                traceParts.add("fetch_latency_ms=" + (row == null ? 0L : row.fetchLatencyMs));
-                if (trace != null) {
-                    traceParts.add("ticker_normalized=" + safe(trace.optString("ticker_normalized", "")));
-                    traceParts.add("resolved_exchange=" + safe(trace.optString("resolved_exchange", "")));
-                    traceParts.add("fallback_path=" + safe(trace.optString("fallback_path", "")));
-                }
-
-                List<String> reasons = new ArrayList<>();
-                reasons.add(blankTo(decision.reason1, "-"));
-                if (!blankTo(decision.reason2, "").isEmpty()) {
-                    reasons.add(blankTo(decision.reason2, ""));
-                }
-
-                watchTableRows.add(kv(
-                        "priceSuspect", row != null && row.priceSuspect,
-                        "name", watchName(row),
-                        "traceSummary", String.join(" | ", traceParts),
-                        "lastClose", fmt2(row == null ? Double.NaN : row.lastClose),
-                        "action", decision.action,
-                        "actionCss", watchActionCss(decision.action),
-                        "reasons", reasons,
-                        "entryRange", (isClose && plan != null && plan.valid) ? (fmt2(plan.entryLow) + " ~ " + fmt2(plan.entryHigh)) : "-",
-                        "stopLoss", (plan != null && plan.valid) ? fmt2(plan.stopLoss) : "-",
-                        "takeProfit", (plan != null && plan.valid) ? fmt2(plan.takeProfit) : "-"
-                ));
-            }
-        }
-        view.put("watchRows", watchTableRows);
-
-        List<Map<String, Object>> watchAiItems = new ArrayList<>();
-        if (watchRows != null) {
-            for (WatchlistAnalysis row : watchRows) {
-                List<String> digests = new ArrayList<>();
-                if (row.newsDigests != null) {
-                    for (String digest : row.newsDigests) {
-                        String line = sanitizeInlineText(digest);
-                        if (!line.isEmpty()) {
-                            digests.add(line);
-                        }
-                    }
-                }
-                watchAiItems.add(kv(
-                        "name", watchName(row),
-                        "lines", aiSummaryLines(row),
-                        "newsDigests", digests
-                ));
-            }
-        }
-        view.put("watchAiItems", watchAiItems);
-
-        boolean noviceWarn = topSelection.cards.stream().anyMatch(c -> c.risk.grade == RiskGrade.HIGH
-                || containsRiskTag(c.risk.tags, "HIGH_VOL")
-                || containsRiskTag(c.risk.tags, "DOWN_TREND"));
-        List<String> funnelStats = new ArrayList<>();
-        funnelStats.add("candidates_from_market_scan=" + topSelection.funnel.candidatesFromMarketScan);
-        funnelStats.add("excluded_derivatives=" + topSelection.funnel.excludedDerivatives);
-        funnelStats.add("missing_indicators=" + topSelection.funnel.missingIndicators);
-        funnelStats.add("plan_invalid=" + topSelection.funnel.planInvalid);
-        funnelStats.add("score_below_threshold=" + topSelection.funnel.scoreBelowThreshold);
-        funnelStats.add("final_top5_count=" + topSelection.funnel.finalTop5Count);
-
-        List<String> gateLines = new ArrayList<>();
-        if (diagnostics != null && !diagnostics.top5Gates.isEmpty()) {
-            for (Diagnostics.GateTrace gate : diagnostics.top5Gates) {
-                gateLines.add("gate=" + safe(gate.gate)
-                        + " | passed=" + gate.passed
-                        + " | fail_count=" + gate.failCount
-                        + " | threshold=" + blankTo(gate.threshold, "-")
-                        + " | cause_code=" + gate.causeCode.name()
-                        + " | owner=" + safe(gate.owner)
-                        + " | details=" + blankTo(gate.details, "-"));
-            }
-        }
-
-        List<Map<String, Object>> topCardItems = new ArrayList<>();
-        for (CandidateCard card : topSelection.cards) {
-            String riskCss = card.risk.grade == RiskGrade.HIGH ? "bad" : (card.risk.grade == RiskGrade.MID ? "warn" : "good");
-            String planLine;
-            if (card.plan.valid && (isClose || !hideEntryInIntraday)) {
-                planLine = "入场 " + fmt2(card.plan.entryLow) + " ~ " + fmt2(card.plan.entryHigh)
-                        + " | 止损 " + fmt2(card.plan.stopLoss)
-                        + " | 目标 " + fmt2(card.plan.takeProfit)
-                        + " | 盈亏比 " + fmt2(card.plan.rrRatio);
-            } else if (card.plan.valid) {
-                planLine = "止损 " + fmt2(card.plan.stopLoss);
-            } else {
-                planLine = "计划无效：行情/指标缺失：今日仅观察，不交易";
-            }
-            topCardItems.add(kv(
-                    "rank", card.rank,
-                    "name", card.name,
-                    "latestPrice", fmt2(card.latestPrice),
-                    "score", fmt1(card.score),
-                    "riskCss", riskCss,
-                    "riskText", riskText(card.risk),
-                    "planLine", planLine,
-                    "reasons", card.reasons
-            ));
-        }
-
-        Map<String, Object> topCards = new HashMap<>();
-        topCards.put("funnelStats", funnelStats);
-        topCards.put("mainReasons", topSelection.funnel.mainReasons);
-        topCards.put("skipReason", safe(topSelection.skipReason));
-        topCards.put("gateLines", gateLines);
-        topCards.put("noviceWarn", noviceWarn);
-        topCards.put("emptyMessage", topSelection.cards.isEmpty() ? "行情/指标缺失：今日仅观察，不交易" : "");
-        topCards.put("cards", topCardItems);
-        topCards.put("excludedDerivatives", topSelection.excludedDerivatives.isEmpty() ? "" : String.join("; ", topSelection.excludedDerivatives));
-        view.put("topCards", topCards);
-
-        Map<String, Object> polymarket = new HashMap<>();
-        FeatureResolution polyFeature = diagnostics == null ? null : diagnostics.feature("polymarket");
-        if ((polyFeature != null && polyFeature.status != FeatureStatus.ENABLED) || polymarketReport == null || !polymarketReport.enabled) {
-            String disabledReason = polymarketReport == null ? "" : safe(polymarketReport.statusMessage);
-            if (disabledReason.isEmpty() && polyFeature != null) {
-                disabledReason = renderFeatureStatusSimple("polymarket.enabled", polyFeature);
-            }
-            polymarket.put("disabledMessage", blankTo(disabledReason, "Polymarket disabled"));
-            polymarket.put("signals", List.of());
-        } else if (polymarketReport.signals.isEmpty()) {
-            polymarket.put("disabledMessage", blankTo(polymarketReport.statusMessage, "No polymarket matches"));
-            polymarket.put("signals", List.of());
-        } else {
-            polymarket.put("disabledMessage", "");
-            polymarket.put("statusMessage", safe(polymarketReport.statusMessage));
-            List<Map<String, Object>> signalItems = new ArrayList<>();
-            for (PolymarketTopicSignal signal : polymarketReport.signals) {
-                List<String> impacts = new ArrayList<>();
-                if (signal.watchImpacts == null || signal.watchImpacts.isEmpty()) {
-                    impacts.add("none");
-                } else {
-                    for (PolymarketWatchImpact impact : signal.watchImpacts) {
-                        String direction = "positive".equalsIgnoreCase(impact.impact) ? "+" : ("negative".equalsIgnoreCase(impact.impact) ? "-" : "=");
-                        impacts.add(impact.code + "(" + direction + "," + fmt1(impact.confidence) + "," + trimText(impact.rationale, 30) + ")");
-                    }
-                }
-                signalItems.add(kv(
-                        "topic", safe(signal.topic),
-                        "probPct", fmt1(signal.impliedProbabilityPct),
-                        "change24hPct", signed(signal.change24hPct),
-                        "oiDirection", safe(signal.oiDirection),
-                        "industries", signal.likelyIndustries == null || signal.likelyIndustries.isEmpty() ? "Unknown" : String.join(", ", signal.likelyIndustries),
-                        "watchImpacts", impacts
-                ));
-            }
-            polymarket.put("signals", signalItems);
-        }
-        view.put("polymarket", polymarket);
-
-        view.put("disclaimerLines", List.of(
-                "1) 本报告仅用于学习和研究，不构成投资建议。",
-                "2) 覆盖率低于80%时请降低权重，低于50%时不建议据此交易。",
-                "3) INTRADAY 仅用于观察，CLOSE 才提供完整入场/止损/目标/盈亏比。",
-                "4) 所有价位均为模型估算，需结合流动性和风险承受能力。",
-                "5) Polymarket 区块为解释层，不纳入综合评分。"
-        ));
-
-        List<Map<String, Object>> configRows = new ArrayList<>();
-        if (diagnostics != null && diagnostics.configSnapshot != null) {
-            for (Diagnostics.ConfigItem item : diagnostics.configSnapshot.values()) {
-                configRows.add(kv(
-                        "key", item.key,
-                        "value", blankTo(item.value, ""),
-                        "source", blankTo(item.source, "default"),
-                        "desc", configDesc(item.key)
-                ));
-            }
-        }
-        view.put("hasConfigSnapshot", !configRows.isEmpty());
-        view.put("configRows", configRows);
-
-        Map<String, Object> diagnosticsView = new HashMap<>();
-        diagnosticsView.put("enabled", diagnostics != null);
-        if (diagnostics != null) {
-            diagnosticsView.put("runId", diagnostics.runId);
-            diagnosticsView.put("runMode", blankTo(diagnostics.runMode, "-"));
-            diagnosticsView.put("coverageScope", blankTo(diagnostics.coverageScope, "-"));
-            diagnosticsView.put("coverageSource", blankTo(diagnostics.coverageSource, "-"));
-            diagnosticsView.put("coverageOwner", blankTo(diagnostics.coverageOwner, "-"));
-
-            List<String> coverageMetrics = new ArrayList<>();
-            for (Diagnostics.CoverageMetric m : diagnostics.coverages.values()) {
-                coverageMetrics.add(m.key + ": " + m.numerator + "/" + m.denominator
-                        + " (" + fmt1(m.pct) + "%)"
-                        + " | source=" + blankTo(m.source, "-")
-                        + " | owner=" + blankTo(m.owner, "-"));
-            }
-            diagnosticsView.put("coverageMetrics", coverageMetrics);
-
-            List<String> dataSources = new ArrayList<>();
-            for (Map.Entry<String, Integer> e : diagnostics.dataSourceStats.entrySet()) {
-                dataSources.add(e.getKey() + "=" + e.getValue());
-            }
-            diagnosticsView.put("dataSources", dataSources);
-
-            List<String> featureStatuses = new ArrayList<>();
-            for (Map.Entry<String, FeatureResolution> e : diagnostics.featureStatuses.entrySet()) {
-                featureStatuses.add(e.getKey() + ": " + renderFeatureStatusSimple(e.getKey(), e.getValue()));
-            }
-            diagnosticsView.put("featureStatuses", featureStatuses);
-
-            List<String> configSnapshotLines = new ArrayList<>();
-            for (Diagnostics.ConfigItem item : diagnostics.configSnapshot.values()) {
-                configSnapshotLines.add(item.key + "=" + blankTo(item.value, "") + " (source=" + blankTo(item.source, "default") + ")");
-            }
-            diagnosticsView.put("configSnapshot", configSnapshotLines);
-            diagnosticsView.put("notes", diagnostics.notes == null ? List.of() : diagnostics.notes);
-        }
-        view.put("diagnostics", diagnosticsView);
-        return view;
-    }
-
-    private Map<String, Object> kv(Object... values) {
-        Map<String, Object> out = new HashMap<>();
-        if (values == null) {
-            return out;
-        }
-        for (int i = 0; i + 1 < values.length; i += 2) {
-            Object key = values[i];
-            if (key == null) {
-                continue;
-            }
-            out.put(String.valueOf(key), values[i + 1]);
-        }
-        return out;
-    }
-
 /**
- * 方法说明：appendPageHeader，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendPageHeader・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendPageHeader(StringBuilder sb) {
         sb.append("<!doctype html><html><head><meta charset='UTF-8'><style>");
@@ -771,11 +369,11 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：appendTopHeader，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendTopHeader・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
-    private void appendTopHeader(
+        private void appendTopHeader(
             StringBuilder sb,
             Instant startedAt,
             ZoneId zoneId,
@@ -800,19 +398,14 @@ public final class ReportBuilder {
             String marketScanStatus,
             int marketRunDenominator
     ) {
-        sb.append("<h1>StockBot 决策辅助报告</h1>");
+        sb.append("<h1>StockBot 每日研判报告</h1>");
         sb.append("<h2>A. 顶部 Header</h2>");
         sb.append("<div class='grid'>");
         sb.append(tile("运行时间 (JST)", escape(DISPLAY_TS.format(startedAt.atZone(zoneId)))));
         sb.append(tile("预测周期", horizonDays + " 天"));
-        sb.append(tile("FETCH_COVERAGE", fetchCoverageCount + " / " + fetchCoverageDenominator + " (" + fmt1(fetchCoveragePct) + "%)"));
-        sb.append(tile("INDICATOR_COVERAGE", indicatorCoverageCount + " / " + indicatorCoverageDenominator + " (" + fmt1(indicatorCoveragePct) + "%)"));
-        sb.append(tile("market_run_coverage", escape(blankTo(marketRunCoverage, "-"))));
-        sb.append(tile("watchlist_coverage", escape(blankTo(watchlistCoverage, "-"))));
         sb.append(tile("今日候选数量", String.valueOf(candidateSize)));
         sb.append(tile("今日 TopN 数量", String.valueOf(topN)));
         sb.append(tile("邮件类型", runType == RunType.CLOSE ? "CLOSE (15:00)" : "INTRADAY (11:30)"));
-        sb.append(tile("coverage_scope", escape(blankTo(coverageScope, "MARKET"))));
         sb.append("</div>");
 
         int suspect = countPriceSuspects(watchRows);
@@ -820,52 +413,29 @@ public final class ReportBuilder {
             sb.append("<div class='dangerbox'>Possible price mapping issue: same lastClose repeated across tickers.</div>");
             sb.append("<div class='small'>suspect tickers: ").append(escape(joinSuspectTickers(watchRows))).append("</div>");
         }
-
-        sb.append("<div class='small' style='margin-top:8px;'>失败原因统计：");
-        sb.append("timeout: ").append(summary.requestFailureCount(ScanFailureReason.TIMEOUT)).append(" | ");
-        sb.append("http_404/no_data: ").append(summary.requestFailureCount(ScanFailureReason.HTTP_404_NO_DATA) + summary.failureCount(ScanFailureReason.HTTP_404_NO_DATA)).append(" | ");
-        sb.append("parse_error: ").append(summary.requestFailureCount(ScanFailureReason.PARSE_ERROR)).append(" | ");
-        sb.append("stale: ").append(summary.failureCount(ScanFailureReason.STALE)).append(" | ");
-        sb.append("history_short: ").append(summary.failureCount(ScanFailureReason.HISTORY_SHORT)).append(" | ");
-        sb.append("filtered_non_tradable: ").append(summary.failureCount(ScanFailureReason.FILTERED_NON_TRADABLE)).append(" | ");
-        sb.append("rate_limit: ").append(summary.requestFailureCount(ScanFailureReason.RATE_LIMIT)).append(" | ");
-        sb.append("other: ").append(summary.failureCount(ScanFailureReason.OTHER) + summary.requestFailureCount(ScanFailureReason.OTHER));
-        sb.append("</div>");
-        sb.append("<div class='small'>coverage_source=").append(escape(blankTo(coverageSource, "UNKNOWN"))).append("</div>");
-        if (marketScanPartial || "PARTIAL".equalsIgnoreCase(blankTo(marketScanStatus, ""))) {
-            sb.append("<div class='small'>覆盖率低：market scan=PARTIAL（仅处理 ")
-                    .append(Math.max(0, marketRunDenominator))
-                    .append(" 标的）</div>");
-        }
     }
-
-/**
- * 方法说明：appendSystemStatus，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     private void appendSystemStatus(StringBuilder sb, ScanResultSummary summary, Diagnostics diagnostics) {
-        sb.append("<h2>B. 系统状态说明</h2>");
+        sb.append("<h2>I. 邉ｻ扈溽憾諤∬ｯｴ譏・/h2>");
         sb.append("<div class='small'>");
-        sb.append("1) 综合分量纲统一为 <b>0~100</b>（自选股与全市场一致）。<br>");
-        sb.append("2) 指标引擎：").append(escape(String.join(", ", IndicatorEngine.computedIndicators()))).append("<br>");
-        sb.append("3) 筛选模块(CandidateFilter)：hard 条件 + signals，hard=")
+        sb.append("1) 扈ｼ蜷亥・驥冗ｺｲ扈滉ｸ荳ｺ <b>0~100</b>・郁・騾芽ぃ荳主・蟶ょ惻荳閾ｴ・峨・br>");
+        sb.append("2) 謖・・ｼ墓梼・・).append(escape(String.join(", ", IndicatorEngine.computedIndicators()))).append("<br>");
+        sb.append("3) 遲幃画ｨ｡蝮・CandidateFilter)・喇ard 譚｡莉ｶ + signals・敬ard=")
                 .append(escape(String.join(", ", CandidateFilter.hardRuleNames())))
-                .append("，signals=")
+                .append("・茎ignals=")
                 .append(escape(String.join(", ", CandidateFilter.signalRuleNames())))
                 .append("<br>");
-        sb.append("4) 风控模块(RiskFilter)：")
+        sb.append("4) 鬟取而讓｡蝮・RiskFilter)・・)
                 .append(escape(String.join(", ", RiskFilter.riskFlagNames())))
                 .append("<br>");
-        sb.append("5) 评分模块(ScoringEngine)：")
+        sb.append("5) 隸・・讓｡蝮・ScoringEngine)・・)
                 .append(escape(String.join(", ", ScoringEngine.factorNames())))
-                .append("（risk penalty clamp 0..100）<br>");
-        sb.append("6) 当前关键阈值：")
-                .append("scan.min_score=").append(escape(config.getString("scan.min_score"))).append("，")
-                .append("filter.min_signals=").append(escape(config.getString("filter.min_signals"))).append("，")
-                .append("filter.hard.max_drop_3d_pct=").append(escape(config.getString("filter.hard.max_drop_3d_pct"))).append("，")
-                .append("rr.min=").append(escape(config.getString("rr.min"))).append("，")
-                .append("plan.entry.buffer_pct=").append(escape(config.getString("plan.entry.buffer_pct"))).append("，")
+                .append("・・isk penalty clamp 0..100・・br>");
+        sb.append("6) 蠖灘燕蜈ｳ髞ｮ髦亥ｼ・・)
+                .append("scan.min_score=").append(escape(config.getString("scan.min_score"))).append("・・)
+                .append("filter.min_signals=").append(escape(config.getString("filter.min_signals"))).append("・・)
+                .append("filter.hard.max_drop_3d_pct=").append(escape(config.getString("filter.hard.max_drop_3d_pct"))).append("・・)
+                .append("rr.min=").append(escape(config.getString("rr.min"))).append("・・)
+                .append("plan.entry.buffer_pct=").append(escape(config.getString("plan.entry.buffer_pct"))).append("・・)
                 .append("plan.stop.atr_mult=").append(escape(config.getString("plan.stop.atr_mult")))
                 .append("<br>");
 
@@ -882,31 +452,102 @@ public final class ReportBuilder {
                     ""
             );
         }
-        sb.append("7) 近30日 Top5 胜率/最大回撤：")
+        sb.append("7) 霑・0譌･ Top5 閭懃紫/譛螟ｧ蝗樊彫・・)
                 .append(renderFeatureStatusV2("report.metrics.top5_perf.enabled", perf, summary))
                 .append("<br>");
         sb.append("</div>");
     }
 
+    private void appendSystemRunLogs(
+            StringBuilder sb,
+            ScanResultSummary summary,
+            int fetchCoverageCount,
+            int fetchCoverageDenominator,
+            double fetchCoveragePct,
+            int indicatorCoverageCount,
+            int indicatorCoverageDenominator,
+            double indicatorCoveragePct,
+            String marketRunCoverage,
+            String watchlistCoverage,
+            String coverageSource,
+            boolean marketScanPartial,
+            String marketScanStatus,
+            int marketRunDenominator,
+            List<WatchlistAnalysis> watchRows
+    ) {
+        sb.append("<details><summary>系统运行日志</summary><div class='small'>");
+        sb.append("FETCH_COVERAGE ").append(fetchCoverageCount).append(" / ").append(fetchCoverageDenominator)
+                .append(" (").append(fmt1(fetchCoveragePct)).append("%)<br>");
+        sb.append("INDICATOR_COVERAGE ").append(indicatorCoverageCount).append(" / ").append(indicatorCoverageDenominator)
+                .append(" (").append(fmt1(indicatorCoveragePct)).append("%)<br>");
+        sb.append("market_run_coverage ").append(escape(blankTo(marketRunCoverage, "-"))).append("<br>");
+        sb.append("watchlist_coverage ").append(escape(blankTo(watchlistCoverage, "-"))).append("<br>");
+        sb.append("coverage_source=").append(escape(blankTo(coverageSource, "UNKNOWN"))).append("<br>");
+        int timeout = summary == null ? 0 : summary.requestFailureCount(ScanFailureReason.TIMEOUT);
+        int noData = summary == null ? 0 : summary.requestFailureCount(ScanFailureReason.HTTP_404_NO_DATA) + summary.failureCount(ScanFailureReason.HTTP_404_NO_DATA);
+        int parseError = summary == null ? 0 : summary.requestFailureCount(ScanFailureReason.PARSE_ERROR);
+        int stale = summary == null ? 0 : summary.failureCount(ScanFailureReason.STALE);
+        int historyShort = summary == null ? 0 : summary.failureCount(ScanFailureReason.HISTORY_SHORT);
+        int nonTradable = summary == null ? 0 : summary.failureCount(ScanFailureReason.FILTERED_NON_TRADABLE);
+        int rateLimit = summary == null ? 0 : summary.requestFailureCount(ScanFailureReason.RATE_LIMIT);
+        int other = summary == null ? 0 : summary.failureCount(ScanFailureReason.OTHER) + summary.requestFailureCount(ScanFailureReason.OTHER);
+        sb.append("failure_breakdown: ")
+                .append("timeout=").append(timeout)
+                .append(" | http_404/no_data=").append(noData)
+                .append(" | parse_error=").append(parseError)
+                .append(" | stale=").append(stale)
+                .append(" | history_short=").append(historyShort)
+                .append(" | filtered_non_tradable=").append(nonTradable)
+                .append(" | rate_limit=").append(rateLimit)
+                .append(" | other=").append(other)
+                .append("<br>");
+        if (marketScanPartial || "PARTIAL".equalsIgnoreCase(blankTo(marketScanStatus, ""))) {
+            sb.append("market_scan=PARTIAL (effective_denominator=").append(Math.max(0, marketRunDenominator)).append(")<br>");
+        }
+
+        if (watchRows != null && !watchRows.isEmpty()) {
+            sb.append("<b>watchlist_fetch_trace</b><br>");
+            for (WatchlistAnalysis row : watchRows) {
+                if (row == null) {
+                    continue;
+                }
+                JSONObject trace = safeJson(row.technicalReasonsJson).optJSONObject("fetch_trace");
+                sb.append(escape(watchName(row))).append(": ");
+                sb.append("data_source=").append(escape(blankTo(row.dataSource, "-"))).append(" | ");
+                sb.append("price_timestamp=").append(escape(blankTo(row.priceTimestamp, "-"))).append(" | ");
+                sb.append("bars_count=").append(row.barsCount).append(" | ");
+                sb.append("cache_hit=").append(row.cacheHit).append(" | ");
+                sb.append("fetch_latency_ms=").append(row.fetchLatencyMs);
+                if (trace != null) {
+                    sb.append(" | ticker_normalized=").append(escape(trace.optString("ticker_normalized", "")));
+                    sb.append(" | resolved_exchange=").append(escape(trace.optString("resolved_exchange", "")));
+                    sb.append(" | fallback_path=").append(escape(trace.optString("fallback_path", "")));
+                }
+                sb.append("<br>");
+            }
+        }
+        sb.append("</div></details>");
+    }
+
 /**
- * 方法说明：appendActionAdvice，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendActionAdvice・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendActionAdvice(StringBuilder sb, ActionAdvice advice, double singleMaxPct, double totalMaxPct) {
-        sb.append("<h2>C. 今日行动建议（总览）</h2>");
+        sb.append("<h2>C. 莉頑律陦悟勘蟒ｺ隶ｮ・域ｻ隗茨ｼ・/h2>");
         sb.append("<div class='card'>");
-        sb.append("<div>建议等级：<span class='chip ").append(advice.css).append("'>").append(escape(advice.level)).append("</span></div>");
+        sb.append("<div>蟒ｺ隶ｮ遲臥ｺｧ・・span class='chip ").append(advice.css).append("'>").append(escape(advice.level)).append("</span></div>");
         sb.append("<div class='small' style='margin-top:6px;'>").append(escape(advice.reason)).append("</div>");
-        sb.append("<div class='small' style='margin-top:6px;'>新手仓位上限：单笔 ≤ ").append(fmt1(singleMaxPct * 100.0))
-                .append("%，总仓 ≤ ").append(fmt1(totalMaxPct * 100.0)).append("%</div>");
+        sb.append("<div class='small' style='margin-top:6px;'>譁ｰ謇倶ｻ謎ｽ堺ｸ企剞・壼黒隨・竕､ ").append(fmt1(singleMaxPct * 100.0))
+                .append("%・梧ｻ莉・竕､ ").append(fmt1(totalMaxPct * 100.0)).append("%</div>");
         sb.append("</div>");
     }
 
 /**
- * 方法说明：appendWatchTable，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendWatchTable・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendNoviceDecisionCard(
             StringBuilder sb,
@@ -919,64 +560,52 @@ public final class ReportBuilder {
             Diagnostics diag
     ) {
         WatchDecisionRow best = pickBestWatchDecision(watchRows, runType == RunType.CLOSE);
-        sb.append("<h2>C0. 小白模式：今日决策卡（只看这一段）</h2><div class='card'>");
-        sb.append("<div class='small'>1) 今日结论：<b>").append(escape(noviceConclusion(indicatorCoveragePct))).append("</b></div>");
+        sb.append("<h2>B. 莉頑律蜀ｳ遲門今</h2><div class='card'>");
+        sb.append("<div class='small'>1) 莉頑律扈楢ｮｺ・・b>").append(escape(noviceConclusion(indicatorCoveragePct))).append("</b></div>");
         if (best == null || best.decision == null || "WAIT".equals(best.decision.action)) {
-            sb.append("<div class='small'>2) 今日最值得看的自选股：无（今日信号不足）</div>");
+            sb.append("<div class='small'>2) 莉頑律譛蛟ｼ蠕礼恚逧・・騾芽ぃ・壽裏・井ｻ頑律菫｡蜿ｷ荳崎ｶｳ・・/div>");
         } else {
-            sb.append("<div class='small'>2) 今日最值得看的自选股：")
+            sb.append("<div class='small'>2) 莉頑律譛蛟ｼ蠕礼恚逧・・騾芽ぃ・・)
                     .append(escape(watchName(best.row)))
                     .append(" [")
                     .append(escape(best.decision.action))
                     .append("]</div>");
         }
-        sb.append("<div class='small'>3) 今日买入条件：分数≥80 且 信号=触发</div>");
-        sb.append("<div class='small'>4) 今日买入条件：风险≠高</div>");
-        sb.append("<div class='small'>5) 今日买入条件：有入场/止损（plan valid）</div>");
-        sb.append("<div class='small'>6) 今日卖出/减仓条件：跌破止损 -> 直接止损</div>");
-        sb.append("<div class='small'>7) 今日卖出/减仓条件：分数跌破65 且 风险=高 -> 减仓/退出</div>");
+        sb.append("<div class='small'>3) 莉頑律荵ｰ蜈･譚｡莉ｶ・壼・謨ｰ竕･80 荳・菫｡蜿ｷ=隗ｦ蜿・/div>");
+        sb.append("<div class='small'>4) 莉頑律荵ｰ蜈･譚｡莉ｶ・夐｣朱勦竕鬮・/div>");
+        sb.append("<div class='small'>5) 莉頑律荵ｰ蜈･譚｡莉ｶ・壽怏蜈･蝨ｺ/豁｢謐滂ｼ・lan valid・・/div>");
+        sb.append("<div class='small'>6) 莉頑律蜊門・/蜃丈ｻ捺擅莉ｶ・夊ｷ檎ｴ豁｢謐・-> 逶ｴ謗･豁｢謐・/div>");
+        sb.append("<div class='small'>7) 莉頑律蜊門・/蜃丈ｻ捺擅莉ｶ・壼・謨ｰ霍檎ｴ65 荳・鬟朱勦=鬮・-> 蜃丈ｻ・騾蜃ｺ</div>");
         if (indicatorCoveragePct < 50.0) {
-            sb.append("<div class='small'>8) 数据可信度：指标覆盖不足（").append(fmt1(indicatorCoveragePct)).append("%），今日不要依据 Top5 做交易</div>");
+            sb.append("<div class='small'>8) 謨ｰ謐ｮ蜿ｯ菫｡蠎ｦ・壽欠譬・ｦ・尠荳崎ｶｳ・・).append(fmt1(indicatorCoveragePct)).append("%・会ｼ御ｻ頑律荳崎ｦ∽ｾ晄紺 Top5 蛛壻ｺ､譏・/div>");
         } else {
-            sb.append("<div class='small'>8) 数据可信度：指标覆盖正常（").append(fmt1(indicatorCoveragePct)).append("%），可参考 Top5，但仍需按止损执行</div>");
+            sb.append("<div class='small'>8) 謨ｰ謐ｮ蜿ｯ菫｡蠎ｦ・壽欠譬・ｦ・尠豁｣蟶ｸ・・).append(fmt1(indicatorCoveragePct)).append("%・会ｼ悟庄蜿り・Top5・御ｽ・ｻ埼怙謖画ｭ｢謐滓鴬陦・/div>");
         }
         sb.append("</div>");
     }
 
     private void appendWatchTableV2(StringBuilder sb, List<WatchlistAnalysis> watchRows, boolean isClose) {
-        sb.append("<h2>D. 自选股动作表</h2>");
+        sb.append("<h2>D. 閾ｪ騾芽ぃ蜉ｨ菴懆｡ｨ</h2>");
         sb.append("<table><tr>")
-                .append("<th>代码+名称</th>")
-                .append("<th>最新价</th>")
-                .append("<th>我的动作</th>")
-                .append("<th>理由（最多2条）</th>")
-                .append("<th>入场区间</th>")
-                .append("<th>止损位</th>")
-                .append("<th>目标位</th>")
+                .append("<th>莉｣遐・蜷咲ｧｰ</th>")
+                .append("<th>譛譁ｰ莉ｷ</th>")
+                .append("<th>謌醍噪蜉ｨ菴・/th>")
+                .append("<th>逅・罰・域怙螟・譚｡・・/th>")
+                .append("<th>蜈･蝨ｺ蛹ｺ髣ｴ</th>")
+                .append("<th>豁｢謐滉ｽ・/th>")
+                .append("<th>逶ｮ譬・ｽ・/th>")
                 .append("</tr>");
         if (watchRows == null || watchRows.isEmpty()) {
-            sb.append("<tr><td colspan='7'>无自选股数据</td></tr></table>");
+            sb.append("<tr><td colspan='7'>譌閾ｪ騾芽ぃ謨ｰ謐ｮ</td></tr></table>");
             return;
         }
         for (WatchlistAnalysis row : watchRows) {
             WatchDecision decision = decideForWatchAction(row, isClose);
             TradePlan plan = decision.plan;
-            JSONObject trace = safeJson(row == null ? "" : row.technicalReasonsJson).optJSONObject("fetch_trace");
 
             sb.append("<tr").append(row != null && row.priceSuspect ? " class='suspect'" : "").append("><td>");
             sb.append(escape(watchName(row)));
-            sb.append("<details><summary class='small'>trace</summary><div class='small'>");
-            sb.append("data_source=").append(escape(row == null ? "" : row.dataSource)).append(" | ");
-            sb.append("price_timestamp=").append(escape(row == null ? "" : row.priceTimestamp)).append(" | ");
-            sb.append("bars_count=").append(row == null ? 0 : row.barsCount).append(" | ");
-            sb.append("cache_hit=").append(row != null && row.cacheHit).append(" | ");
-            sb.append("fetch_latency_ms=").append(row == null ? 0L : row.fetchLatencyMs);
-            if (trace != null) {
-                sb.append(" | ticker_normalized=").append(escape(trace.optString("ticker_normalized", "")));
-                sb.append(" | resolved_exchange=").append(escape(trace.optString("resolved_exchange", "")));
-                sb.append(" | fallback_path=").append(escape(trace.optString("fallback_path", "")));
-            }
-            sb.append("</div></details></td>");
+            sb.append("</td>");
 
             sb.append("<td>").append(fmt2(row == null ? Double.NaN : row.lastClose)).append("</td>");
             sb.append("<td><span class='chip ").append(watchActionCss(decision.action)).append("'>").append(escape(decision.action)).append("</span></td>");
@@ -986,19 +615,19 @@ public final class ReportBuilder {
             }
             sb.append("</td>");
             sb.append("<td>").append(isClose && plan != null && plan.valid ? (fmt2(plan.entryLow) + " ~ " + fmt2(plan.entryHigh)) : "-").append("</td>");
-            sb.append("<td>").append(plan != null && plan.valid ? fmt2(plan.stopLoss) : "-").append("</td>");
-            sb.append("<td>").append(plan != null && plan.valid ? fmt2(plan.takeProfit) : "-").append("</td>");
+            sb.append("<td>").append(plan != null && plan.valid ? formatPlanLevelWithDelta(plan.stopLoss, row == null ? Double.NaN : row.lastClose, true) : "-").append("</td>");
+            sb.append("<td>").append(plan != null && plan.valid ? formatPlanLevelWithDelta(plan.takeProfit, row == null ? Double.NaN : row.lastClose, false) : "-").append("</td>");
             sb.append("</tr>");
         }
         sb.append("</table>");
     }
 
     private void appendWatchTable(StringBuilder sb, List<WatchlistAnalysis> watchRows, boolean isClose) {
-        sb.append("<h2>D. 自选股跟踪（精简表格）</h2>");
-        sb.append("<table><tr><th>代码+名称</th><th>最新价</th><th>综合分(0-100)</th><th>风险等级</th><th>信号状态</th><th>")
-                .append(isClose ? "止损位" : "风险线(止损意义)").append("</th></tr>");
+        sb.append("<h2>D. 閾ｪ騾芽ぃ霍溯ｸｪ・育ｲｾ邂陦ｨ譬ｼ・・/h2>");
+        sb.append("<table><tr><th>莉｣遐・蜷咲ｧｰ</th><th>譛譁ｰ莉ｷ</th><th>扈ｼ蜷亥・(0-100)</th><th>鬟朱勦遲臥ｺｧ</th><th>菫｡蜿ｷ迥ｶ諤・/th><th>")
+                .append(isClose ? "豁｢謐滉ｽ・ : "鬟朱勦郤ｿ(豁｢謐滓э荵・").append("</th></tr>");
         if (watchRows.isEmpty()) {
-            sb.append("<tr><td colspan='6'>无自选股数据。</td></tr></table>");
+            sb.append("<tr><td colspan='6'>譌閾ｪ騾芽ぃ謨ｰ謐ｮ縲・/td></tr></table>");
             return;
         }
         for (WatchlistAnalysis row : watchRows) {
@@ -1006,7 +635,7 @@ public final class ReportBuilder {
             RiskAssessment risk = assessRisk(ind);
             Outcome<TradePlan> planOutcome = tradePlanBuilder.build(toTradePlanInput(ind));
             TradePlan plan = planOutcome.value == null ? TradePlan.invalid() : planOutcome.value;
-            String signal = "CANDIDATE".equalsIgnoreCase(blankTo(row.technicalStatus, "")) ? "触发" : "未触发";
+            String signal = "CANDIDATE".equalsIgnoreCase(blankTo(row.technicalStatus, "")) ? "隗ｦ蜿・ : "譛ｪ隗ｦ蜿・;
             String riskCss = risk.grade == RiskGrade.HIGH ? "bad" : (risk.grade == RiskGrade.MID ? "warn" : "good");
             JSONObject reasonRoot = safeJson(row.technicalReasonsJson);
             DisplayReason displayReason = resolveDisplayReason(row, reasonRoot, planOutcome);
@@ -1038,24 +667,24 @@ public final class ReportBuilder {
             sb.append("<td>").append(escape(plan.valid ? fmt2(plan.stopLoss) : displayReason.category)).append("</td></tr>");
         }
         sb.append("</table>");
-        sb.append("<div class='small' style='margin-top:8px;'>说明：SMA/RSI/ATR/BB% 等原始指标不在正文展示。</div>");
+        sb.append("<div class='small' style='margin-top:8px;'>隸ｴ譏趣ｼ售MA/RSI/ATR/BB% 遲牙次蟋区欠譬・ｸ榊惠豁｣譁・ｱ慕､ｺ縲・/div>");
     }
 
 /**
- * 方法说明：appendWatchAiSummary，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendWatchAiSummary・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendWatchAiSummary(StringBuilder sb, List<WatchlistAnalysis> watchRows) {
         if (watchRows.isEmpty()) return;
-        sb.append("<div class='card'><h3 style='margin-top:0;'>AI 新闻摘要（纯文本）</h3>");
+        sb.append("<div class='card'><h3 style='margin-top:0;'>AI 譁ｰ髣ｻ鞫倩ｦ・ｼ育ｺｯ譁・悽・・/h3>");
         for (WatchlistAnalysis row : watchRows) {
             sb.append("<div style='margin-bottom:8px;'><b>").append(escape(watchName(row))).append("</b>");
             for (String line : aiSummaryLines(row)) {
                 sb.append("<div class='small'>").append(escape(line)).append("</div>");
             }
             if (row.newsDigests != null && !row.newsDigests.isEmpty()) {
-                sb.append("<details><summary class='small'>相关新闻</summary>");
+                sb.append("<details><summary class='small'>逶ｸ蜈ｳ譁ｰ髣ｻ</summary>");
                 for (String digest : row.newsDigests) {
                     String line = sanitizeInlineText(digest);
                     if (line.isEmpty()) {
@@ -1070,36 +699,36 @@ public final class ReportBuilder {
         sb.append("</div>");
     }
 /**
- * 方法说明：appendTopCards，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendTopCards・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendTopCardsV2(StringBuilder sb, CandidateSelection topSelection, boolean isClose, boolean hideEntryInIntraday, Diagnostics diagnostics) {
-        sb.append("<h2>E. 今日 Top5</h2>");
+        sb.append("<h2>E. 莉頑律 Top5</h2>");
         appendTopFunnel(sb, topSelection.funnel, topSelection.skipReason, diagnostics);
         boolean noviceWarn = topSelection.cards.stream().anyMatch(c -> c.risk.grade == RiskGrade.HIGH || containsRiskTag(c.risk.tags, "HIGH_VOL") || containsRiskTag(c.risk.tags, "DOWN_TREND"));
         if (noviceWarn) {
-            sb.append("<div class='warnbox'>Top5 多为高波动/下跌趋势反弹票，新手默认不参与（仅观察）</div>");
+            sb.append("<div class='warnbox'>Top5 螟壻ｸｺ鬮俶ｳ｢蜉ｨ/荳玖ｷ瑚ｶ句漢蜿榊ｼｹ逾ｨ・梧眠謇矩ｻ倩ｮ､荳榊盾荳趣ｼ井ｻ・ｧょｯ滂ｼ・/div>");
         }
         if (topSelection.cards.isEmpty()) {
-            sb.append("<div class='warnbox'>行情/指标缺失：今日仅观察，不交易</div>");
+            sb.append("<div class='warnbox'>陦梧ュ/謖・・ｼｺ螟ｱ・壻ｻ頑律莉・ｧょｯ滂ｼ御ｸ堺ｺ､譏・/div>");
             return;
         }
         for (CandidateCard card : topSelection.cards) {
             String riskCss = card.risk.grade == RiskGrade.HIGH ? "bad" : (card.risk.grade == RiskGrade.MID ? "warn" : "good");
             sb.append("<div class='card'><div><b>#").append(card.rank).append(" ").append(escape(card.name)).append("</b></div>");
-            sb.append("<div class='small'>最新价 ").append(fmt2(card.latestPrice))
-                    .append(" | 评分 <span class='chip info'>").append(fmt1(card.score)).append("</span>")
-                    .append(" | 风险 <span class='chip ").append(riskCss).append("'>").append(escape(riskText(card.risk))).append("</span></div>");
+            sb.append("<div class='small'>譛譁ｰ莉ｷ ").append(fmt2(card.latestPrice))
+                    .append(" | 隸・・ <span class='chip info'>").append(fmt1(card.score)).append("</span>")
+                    .append(" | 鬟朱勦 <span class='chip ").append(riskCss).append("'>").append(escape(riskText(card.risk))).append("</span></div>");
             if (card.plan.valid && (isClose || !hideEntryInIntraday)) {
-                sb.append("<div class='small'>入场 ").append(fmt2(card.plan.entryLow)).append(" ~ ").append(fmt2(card.plan.entryHigh))
-                        .append(" | 止损 ").append(fmt2(card.plan.stopLoss))
-                        .append(" | 目标 ").append(fmt2(card.plan.takeProfit))
-                        .append(" | 盈亏比 ").append(fmt2(card.plan.rrRatio)).append("</div>");
+                sb.append("<div class='small'>蜈･蝨ｺ ").append(fmt2(card.plan.entryLow)).append(" ~ ").append(fmt2(card.plan.entryHigh))
+                        .append(" | 豁｢謐・").append(formatPlanLevelWithDelta(card.plan.stopLoss, card.latestPrice, true))
+                        .append(" | 逶ｮ譬・").append(formatPlanLevelWithDelta(card.plan.takeProfit, card.latestPrice, false))
+                        .append(" | 逶井ｺ乗ｯ・").append(fmt2(card.plan.rrRatio)).append("</div>");
             } else if (card.plan.valid) {
-                sb.append("<div class='small'>止损 ").append(fmt2(card.plan.stopLoss)).append("</div>");
+                sb.append("<div class='small'>豁｢謐・").append(formatPlanLevelWithDelta(card.plan.stopLoss, card.latestPrice, true)).append("</div>");
             } else {
-                sb.append("<div class='small'>计划无效：行情/指标缺失：今日仅观察，不交易</div>");
+                sb.append("<div class='small'>隶｡蛻呈裏謨茨ｼ夊｡梧ュ/謖・・ｼｺ螟ｱ・壻ｻ頑律莉・ｧょｯ滂ｼ御ｸ堺ｺ､譏・/div>");
             }
             sb.append("<details><summary class='small'>signals</summary><ul class='bul'>");
             for (String reason : card.reasons) {
@@ -1110,7 +739,7 @@ public final class ReportBuilder {
     }
 
     private void appendTopCards(StringBuilder sb, CandidateSelection topSelection, boolean isClose, boolean hideEntryInIntraday, Diagnostics diagnostics) {
-        sb.append("<h2>E. 今日 Top 5 候选</h2>");
+        sb.append("<h2>E. 莉頑律 Top 5 蛟咎・/h2>");
         appendTopFunnel(sb, topSelection.funnel, topSelection.skipReason, diagnostics);
 
         if (topSelection.cards.isEmpty()) {
@@ -1118,35 +747,35 @@ public final class ReportBuilder {
             if (!safe(topSelection.skipReason).isEmpty()) {
                 sb.append(escape(topSelection.skipReason));
             } else {
-                sb.append("当前没有满足规则的 Top 5 候选（已被 gate 或规则过滤）。");
+                sb.append("蠖灘燕豐｡譛画ｻ｡雜ｳ隗・・逧・Top 5 蛟咎会ｼ亥ｷｲ陲ｫ gate 謌冶ｧ・・霑・ｻ､・峨・);
             }
             if (!topSelection.funnel.mainReasons.isEmpty()) {
-                sb.append("<br>主要淘汰原因：").append(escape(String.join("；", topSelection.funnel.mainReasons)));
+                sb.append("<br>荳ｻ隕∵ｷ俶ｱｰ蜴溷屏・・).append(escape(String.join("・・, topSelection.funnel.mainReasons)));
             }
             sb.append("</div>");
         } else {
             for (CandidateCard card : topSelection.cards) {
                 String riskCss = card.risk.grade == RiskGrade.HIGH ? "bad" : (card.risk.grade == RiskGrade.MID ? "warn" : "good");
                 sb.append("<div class='card'><div><b>#").append(card.rank).append(" ").append(escape(card.name)).append("</b></div>");
-                sb.append("<div class='small'>最新价 ").append(fmt2(card.latestPrice))
-                        .append(" | 综合分 <span class='chip info'>").append(fmt1(card.score)).append("</span>")
-                        .append(" | 风险 <span class='chip ").append(riskCss).append("'>").append(escape(riskText(card.risk))).append("</span></div>");
+                sb.append("<div class='small'>譛譁ｰ莉ｷ ").append(fmt2(card.latestPrice))
+                        .append(" | 扈ｼ蜷亥・ <span class='chip info'>").append(fmt1(card.score)).append("</span>")
+                        .append(" | 鬟朱勦 <span class='chip ").append(riskCss).append("'>").append(escape(riskText(card.risk))).append("</span></div>");
                 if (!card.risk.tags.isEmpty()) {
-                    sb.append("<div class='small'>风险标签：").append(escape(String.join(", ", card.risk.tags))).append("</div>");
+                    sb.append("<div class='small'>鬟朱勦譬・ｭｾ・・).append(escape(String.join(", ", card.risk.tags))).append("</div>");
                 }
                 if (isClose || !hideEntryInIntraday) {
                     if (card.plan.valid) {
-                        sb.append("<div class='small'>入场区间：").append(fmt2(card.plan.entryLow)).append(" ~ ").append(fmt2(card.plan.entryHigh))
-                                .append(" | 止损位：").append(fmt2(card.plan.stopLoss))
-                                .append(" | 目标位：").append(fmt2(card.plan.takeProfit))
-                                .append(" | 盈亏比：").append(fmt2(card.plan.rrRatio)).append("</div>");
+                        sb.append("<div class='small'>蜈･蝨ｺ蛹ｺ髣ｴ・・).append(fmt2(card.plan.entryLow)).append(" ~ ").append(fmt2(card.plan.entryHigh))
+                                .append(" | 豁｢謐滉ｽ搾ｼ・).append(fmt2(card.plan.stopLoss))
+                                .append(" | 逶ｮ譬・ｽ搾ｼ・).append(fmt2(card.plan.takeProfit))
+                                .append(" | 逶井ｺ乗ｯ費ｼ・).append(fmt2(card.plan.rrRatio)).append("</div>");
                     } else {
-                        sb.append("<div class='small'>价位方案不可用（PLAN_UNAVAILABLE）。</div>");
+                        sb.append("<div class='small'>莉ｷ菴肴婿譯井ｸ榊庄逕ｨ・・LAN_UNAVAILABLE・峨・/div>");
                     }
                 } else {
-                    String change = card.isNewCandidate ? "新增候选" : "延续候选";
-                    String delta = card.scoreDelta == null ? "分数变化：无历史数据" : ("分数变化：" + signed(card.scoreDelta));
-                    String stopLine = card.plan.valid ? ("风险线(止损)：" + fmt2(card.plan.stopLoss)) : "风险线(止损)：PLAN_UNAVAILABLE";
+                    String change = card.isNewCandidate ? "譁ｰ蠅槫咎・ : "蟒ｶ扈ｭ蛟咎・;
+                    String delta = card.scoreDelta == null ? "蛻・焚蜿伜喧・壽裏蜴・彰謨ｰ謐ｮ" : ("蛻・焚蜿伜喧・・ + signed(card.scoreDelta));
+                    String stopLine = card.plan.valid ? ("鬟朱勦郤ｿ(豁｢謐・・・ + fmt2(card.plan.stopLoss)) : "鬟朱勦郤ｿ(豁｢謐・・啀LAN_UNAVAILABLE";
                     sb.append("<div class='small'>").append(escape(change)).append(" | ").append(escape(delta)).append(" | ").append(escape(stopLine)).append("</div>");
                 }
                 sb.append("<ul class='bul'>");
@@ -1158,19 +787,19 @@ public final class ReportBuilder {
         }
 
         if (!topSelection.excludedDerivatives.isEmpty()) {
-            sb.append("<div class='warnbox'><b>衍生/对冲类（仅研究用）</b><br>已从 Top 候选剔除：")
+            sb.append("<div class='warnbox'><b>陦咲函/蟇ｹ蜀ｲ邀ｻ・井ｻ・皮ｩｶ逕ｨ・・/b><br>蟾ｲ莉・Top 蛟咎牙鉛髯､・・)
                     .append(escape(String.join("; ", topSelection.excludedDerivatives)))
                     .append(".</div>");
         }
     }
 
 /**
- * 方法说明：appendTopFunnel，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendTopFunnel・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendTopFunnel(StringBuilder sb, TopFunnel funnel, String skipReason, Diagnostics diagnostics) {
-        sb.append("<div class='card'><h3 style='margin-top:0;'>Top5 漏斗统计</h3><div class='small'>");
+        sb.append("<div class='card'><h3 style='margin-top:0;'>Top5 貍乗沫扈溯ｮ｡</h3><div class='small'>");
         sb.append("candidates_from_market_scan=").append(funnel.candidatesFromMarketScan).append(" | ");
         sb.append("excluded_derivatives=").append(funnel.excludedDerivatives).append(" | ");
         sb.append("missing_indicators=").append(funnel.missingIndicators).append(" | ");
@@ -1180,7 +809,7 @@ public final class ReportBuilder {
         sb.append("</div>");
 
         if (funnel.finalTop5Count == 0 && !funnel.mainReasons.isEmpty()) {
-            sb.append("<div class='small'>最主要淘汰原因：").append(escape(String.join("；", funnel.mainReasons))).append("</div>");
+            sb.append("<div class='small'>譛荳ｻ隕∵ｷ俶ｱｰ蜴溷屏・・).append(escape(String.join("・・, funnel.mainReasons))).append("</div>");
         }
         if (!safe(skipReason).isEmpty()) {
             sb.append("<div class='small'>").append(escape(skipReason)).append("</div>");
@@ -1203,146 +832,44 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：appendPolymarketSignals，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
-    private void appendPolymarketSignalsV2(StringBuilder sb, PolymarketSignalReport report, Diagnostics diagnostics) {
-        sb.append("<h2>F. Polymarket Signals</h2>");
-        FeatureResolution feature = diagnostics == null ? null : diagnostics.feature("polymarket");
-        if ((feature != null && feature.status != FeatureStatus.ENABLED) || report == null || !report.enabled) {
-            String disabledReason = report == null ? "" : safe(report.statusMessage);
-            if (disabledReason.isEmpty() && feature != null) {
-                disabledReason = renderFeatureStatusSimple("polymarket.enabled", feature);
-            }
-            sb.append("<div class='warnbox'>")
-                    .append(escape(blankTo(disabledReason, "Polymarket disabled")))
-                    .append("</div>");
-            return;
-        }
-        if (report.signals.isEmpty()) {
-            sb.append("<div class='warnbox'>")
-                    .append(escape(blankTo(report.statusMessage, "No polymarket matches")))
-                    .append("</div>");
-            return;
-        }
-        if (!safe(report.statusMessage).isEmpty()) {
-            sb.append("<div class='small'>status: ")
-                    .append(escape(report.statusMessage))
-                    .append("</div>");
-        }
-
-        for (PolymarketTopicSignal signal : report.signals) {
-            sb.append("<div class='card'><div class='small'><b>Topic: ").append(escape(signal.topic))
-                    .append(" | Prob: ").append(fmt1(signal.impliedProbabilityPct)).append("%")
-                    .append(" | 24h: ").append(signed(signal.change24hPct)).append("%")
-                    .append(" | OI: ").append(escape(signal.oiDirection))
-                    .append("</b></div>");
-            sb.append("<div class='small'>Likely industries: ")
-                    .append(escape(signal.likelyIndustries.isEmpty() ? "Unknown" : String.join(", ", signal.likelyIndustries)))
-                    .append("</div>");
-            sb.append("<div class='small'>Watchlist impact: ");
-            if (signal.watchImpacts == null || signal.watchImpacts.isEmpty()) {
-                sb.append("none");
-            } else {
-                List<String> parts = new ArrayList<>();
-                for (PolymarketWatchImpact impact : signal.watchImpacts) {
-                    String direction = "positive".equalsIgnoreCase(impact.impact) ? "+" : ("negative".equalsIgnoreCase(impact.impact) ? "-" : "=");
-                    parts.add(impact.code + "(" + direction + "," + fmt1(impact.confidence) + "," + trimText(impact.rationale, 30) + ")");
-                }
-                sb.append(escape(String.join(" / ", parts)));
-            }
-            sb.append("</div></div>");
-        }
-    }
-
-    private void appendPolymarketSignals(StringBuilder sb, PolymarketSignalReport report, Diagnostics diagnostics) {
-        sb.append("<h2>F. Polymarket Signals</h2>");
-        FeatureResolution polymarketFeature = diagnostics == null ? null : diagnostics.feature("polymarket");
-        if (polymarketFeature != null && polymarketFeature.status != FeatureStatus.ENABLED) {
-            sb.append("<div class='warnbox'>")
-                    .append(escape(renderFeatureStatusSimple("polymarket.enabled", polymarketFeature)))
-                    .append("</div>");
-            return;
-        }
-        if (report == null || !report.enabled) {
-            String message = report == null ? "未启用" : report.statusMessage;
-            sb.append("<div class='warnbox'>").append(escape(blankTo(message, "未启用"))).append("</div>");
-            return;
-        }
-        if (report.signals.isEmpty()) {
-            sb.append("<div class='warnbox'>").append(escape(blankTo(report.statusMessage, "无匹配市场"))).append("</div>");
-            return;
-        }
-        if (!safe(report.statusMessage).isEmpty()) {
-            sb.append("<div class='small'>状态：").append(escape(report.statusMessage)).append("</div>");
-        }
-
-        for (PolymarketTopicSignal signal : report.signals) {
-            sb.append("<div class='card'>");
-            sb.append("<div class='small'><b>Topic: ").append(escape(signal.topic))
-                    .append(" | Implied Prob: ").append(fmt1(signal.impliedProbabilityPct)).append("%")
-                    .append(" | 24h: ").append(signed(signal.change24hPct)).append("%")
-                    .append(" | OI: ").append(escape(signal.oiDirection))
-                    .append("</b></div>");
-            sb.append("<div class='small'>Likely affected industries: ")
-                    .append(escape(signal.likelyIndustries.isEmpty() ? "Unknown" : String.join(", ", signal.likelyIndustries)))
-                    .append("</div>");
-            sb.append("<div class='small'>Watchlist impact: ");
-            if (signal.watchImpacts == null || signal.watchImpacts.isEmpty()) {
-                sb.append("无明显映射");
-            } else {
-                List<String> parts = new ArrayList<>();
-                for (PolymarketWatchImpact impact : signal.watchImpacts) {
-                    String direction = "positive".equalsIgnoreCase(impact.impact) ? "+" : ("negative".equalsIgnoreCase(impact.impact) ? "-" : "卤");
-                    parts.add(impact.code + " (" + direction + "," + fmt1(impact.confidence) + ",\"" + trimText(impact.rationale, 40) + "\")");
-                }
-                sb.append(escape(String.join(" / ", parts)));
-            }
-            sb.append("</div></div>");
-        }
-    }
-
-/**
- * 方法说明：appendDisclaimer，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendDisclaimer・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendDisclaimer(StringBuilder sb) {
-        sb.append("<h2>G. 风险提示与免责声明</h2><div class='disclaimer'>");
-        sb.append("1) 本报告仅用于学习和研究，不构成投资建议。<br>");
-        sb.append("2) 覆盖率低于80%时请降低权重，低于50%时不建议据此交易。<br>");
-        sb.append("3) INTRADAY 仅用于观察，CLOSE 才提供完整入场/止损/目标/盈亏比。<br>");
-        sb.append("4) 所有价位均为模型估算，需结合流动性和风险承受能力。<br>");
-        sb.append("5) Polymarket 区块为解释层，不纳入综合评分。");
+        sb.append("<h2>F. 鬟朱勦謠千､ｺ荳主・雍｣螢ｰ譏・/h2><div class='disclaimer'>");
+        sb.append("1) 譛ｬ謚･蜻贋ｻ・畑莠主ｭｦ荵蜥檎皮ｩｶ・御ｸ肴桷謌先兜襍・ｻｺ隶ｮ縲・br>");
+        sb.append("2) 隕・尠邇・ｽ惹ｺ・0%譌ｶ隸ｷ髯堺ｽ取揀驥搾ｼ御ｽ惹ｺ・0%譌ｶ荳榊ｻｺ隶ｮ謐ｮ豁､莠､譏薙・br>");
+        sb.append("3) INTRADAY 莉・畑莠手ｧょｯ滂ｼ靴LOSE 謇肴署萓帛ｮ梧紛蜈･蝨ｺ/豁｢謐・逶ｮ譬・逶井ｺ乗ｯ斐・br>");
+        sb.append("4) 謇譛我ｻｷ菴榊插荳ｺ讓｡蝙倶ｼｰ邂暦ｼ碁怙扈灘粋豬∝勘諤ｧ蜥碁｣朱勦謇ｿ蜿苓・蜉帙・br>");
         sb.append("</div>");
     }
 
 /**
- * 方法说明：appendConfigOverview，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendConfigOverview・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendConfigOverviewCollapsed(StringBuilder sb, Diagnostics diagnostics) {
-        sb.append("<details><summary class='small'>高级：参数总览（点开）</summary>");
+        sb.append("<details><summary class='small'>鬮倡ｺｧ・壼盾謨ｰ諤ｻ隗茨ｼ育せ蠑・・/summary>");
         appendConfigOverview(sb, diagnostics);
         sb.append("</details>");
     }
 
     private void appendDiagnosticsCollapsed(StringBuilder sb, Diagnostics diagnostics) {
-        sb.append("<details><summary class='small'>高级：Diagnostics（点开）</summary>");
+        sb.append("<details><summary class='small'>鬮倡ｺｧ・咼iagnostics・育せ蠑・・/summary>");
         appendDiagnostics(sb, diagnostics);
         sb.append("</details>");
     }
 
     private void appendConfigOverview(StringBuilder sb, Diagnostics diagnostics) {
-        sb.append("<h2>H. 参数总览（本次运行）</h2>");
+        sb.append("<h2>G. 蜿よ焚諤ｻ隗茨ｼ域悽谺｡霑占｡鯉ｼ・/h2>");
         if (diagnostics == null || diagnostics.configSnapshot.isEmpty()) {
-            sb.append("<div class='small'>未采集到参数快照。</div>");
+            sb.append("<div class='small'>譛ｪ驥・寔蛻ｰ蜿よ焚蠢ｫ辣ｧ縲・/div>");
             return;
         }
-        sb.append("<div class='small'>以下参数来自本次实际运行配置，来源字段含义：default/resource/override。</div>");
-        sb.append("<table><tr><th>参数</th><th>当前值</th><th>来源</th><th>说明</th></tr>");
+        sb.append("<div class='small'>莉･荳句盾謨ｰ譚･閾ｪ譛ｬ谺｡螳樣刔霑占｡碁・鄂ｮ・梧擂貅仙ｭ玲ｮｵ蜷ｫ荵会ｼ單efault/resource/override縲・/div>");
+        sb.append("<table><tr><th>蜿よ焚</th><th>蠖灘燕蛟ｼ</th><th>譚･貅・/th><th>隸ｴ譏・/th></tr>");
         for (Diagnostics.ConfigItem item : diagnostics.configSnapshot.values()) {
             sb.append("<tr><td>")
                     .append(escape(item.key))
@@ -1358,15 +885,15 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：appendDiagnostics，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendDiagnostics・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendDiagnostics(StringBuilder sb, Diagnostics diagnostics) {
         if (diagnostics == null) {
             return;
         }
-        sb.append("<h2>I. Diagnostics</h2>");
+        sb.append("<h2>H. Diagnostics</h2>");
         sb.append("<details><summary>diagnostics</summary><div class='small'>");
         sb.append("run_id=").append(diagnostics.runId).append(" | run_mode=").append(escape(blankTo(diagnostics.runMode, "-"))).append("<br>");
         sb.append("coverage_scope=").append(escape(blankTo(diagnostics.coverageScope, "-")))
@@ -1431,9 +958,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：buildDebugJson，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喘uildDebugJson・瑚ｴ溯ｴ｣譫・ｻｺ逶ｮ譬・ｯｹ雎｡謌冶ｾ灘・蜀・ｮｹ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String buildDebugJson(
             Instant startedAt,
@@ -1532,9 +1059,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：coverageToJson，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喞overageToJson・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private JSONObject coverageToJson(Diagnostics.CoverageMetric metric) {
         JSONObject json = new JSONObject();
@@ -1555,9 +1082,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：appendWatchWhy，负责追加组装输出片段。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ppendWatchWhy・瑚ｴ溯ｴ｣霑ｽ蜉扈・｣・ｾ灘・迚・ｮｵ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private void appendWatchWhy(StringBuilder sb, DisplayReason displayReason) {
         if (displayReason == null) {
@@ -1571,9 +1098,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：resolveDisplayReason，负责解析规则并确定最终结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗷esolveDisplayReason・瑚ｴ溯ｴ｣隗｣譫占ｧ・・蟷ｶ遑ｮ螳壽怙扈育ｻ捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private DisplayReason resolveDisplayReason(WatchlistAnalysis row, JSONObject reasonRoot, Outcome<TradePlan> planOutcome) {
         JSONObject root = reasonRoot == null ? new JSONObject() : reasonRoot;
@@ -1615,9 +1142,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：filterReasonSummary，负责按规则过滤无效数据。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喃ilterReasonSummary・瑚ｴ溯ｴ｣謖芽ｧ・・霑・ｻ､譌謨域焚謐ｮ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String filterReasonSummary(JSONObject reasonRoot) {
         if (reasonRoot == null) {
@@ -1644,9 +1171,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：toCauseCode，负责转换数据结构用于后续处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗾oCauseCode・瑚ｴ溯ｴ｣霓ｬ謐｢謨ｰ謐ｮ扈捺桷逕ｨ莠主錘扈ｭ螟・炊縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private CauseCode toCauseCode(String raw) {
         if (raw == null || raw.trim().isEmpty()) {
@@ -1659,55 +1186,55 @@ public final class ReportBuilder {
         }
     }
 /**
- * 方法说明：renderFeatureStatus，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗷enderFeatureStatus・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String renderFeatureStatusV2(String featureKey, FeatureResolution feature, ScanResultSummary summary) {
         if (feature == null || feature.status != FeatureStatus.ENABLED) {
-            return "该模块未开启（不影响买卖信号，只是少了统计/解释）";
+            return "隸･讓｡蝮玲悴蠑蜷ｯ・井ｸ榊ｽｱ蜩堺ｹｰ蜊紋ｿ｡蜿ｷ・悟宵譏ｯ蟆台ｺ・ｻ溯ｮ｡/隗｣驥奇ｼ・;
         }
         int shortCount = summary == null ? 0 : summary.insufficientCount(DataInsufficientReason.HISTORY_SHORT);
         if (shortCount > 0) {
-            return "行情/指标缺失：今日仅观察，不交易";
+            return "陦梧ュ/謖・・ｼｺ螟ｱ・壻ｻ頑律莉・ｧょｯ滂ｼ御ｸ堺ｺ､譏・;
         }
         double winRate = config.getDouble("report.metrics.top5_perf.win_rate_30d", Double.NaN);
         double drawdown = config.getDouble("report.metrics.top5_perf.max_drawdown_30d", Double.NaN);
         if (Double.isFinite(winRate) || Double.isFinite(drawdown)) {
-            return "近30天胜率 " + fmt1(winRate) + "% | 最大回撤 " + fmt1(drawdown) + "%";
+            return "霑・0螟ｩ閭懃紫 " + fmt1(winRate) + "% | 譛螟ｧ蝗樊彫 " + fmt1(drawdown) + "%";
         }
-        return "已启用";
+        return "蟾ｲ蜷ｯ逕ｨ";
     }
 
     private String renderFeatureStatus(String featureKey, FeatureResolution feature, ScanResultSummary summary) {
         if (feature == null) {
-            return "<b>未启用</b>";
+            return "<b>譛ｪ蜷ｯ逕ｨ</b>";
         }
         if (feature.status == FeatureStatus.ENABLED) {
             int shortCount = summary == null ? 0 : summary.insufficientCount(DataInsufficientReason.HISTORY_SHORT);
             if (shortCount > 0) {
-                return "<b>INSUFFICIENT_HISTORY</b>（cause_code=HISTORY_SHORT，owner=com.stockbot.jp.db.ScanResultDao#summarizeByRun(...)，n=" + shortCount + "）";
+                return "<b>INSUFFICIENT_HISTORY</b>・・ause_code=HISTORY_SHORT・経wner=com.stockbot.jp.db.ScanResultDao#summarizeByRun(...)・系=" + shortCount + "・・;
             }
             double winRate = config.getDouble("report.metrics.top5_perf.win_rate_30d", Double.NaN);
             double drawdown = config.getDouble("report.metrics.top5_perf.max_drawdown_30d", Double.NaN);
             if (Double.isFinite(winRate) || Double.isFinite(drawdown)) {
-                return "<b>" + fmt1(winRate) + "%</b>；近30日最大回撤：<b>" + fmt1(drawdown) + "%</b>";
+                return "<b>" + fmt1(winRate) + "%</b>・幄ｿ・0譌･譛螟ｧ蝗樊彫・・b>" + fmt1(drawdown) + "%</b>";
             }
-            return "<b>已启用</b>";
+            return "<b>蟾ｲ蜷ｯ逕ｨ</b>";
         }
         if (feature.status == FeatureStatus.DISABLED_BY_CONFIG) {
-            return "<b>未启用</b>（config: " + featureKey + "=false）";
+            return "<b>譛ｪ蜷ｯ逕ｨ</b>・・onfig: " + featureKey + "=false・・;
         }
         if (feature.status == FeatureStatus.DISABLED_NOT_IMPLEMENTED) {
-            return "<b>未启用</b>（cause_code=" + feature.causeCode.name() + "，owner=" + escape(feature.owner) + "）";
+            return "<b>譛ｪ蜷ｯ逕ｨ</b>・・ause_code=" + feature.causeCode.name() + "・経wner=" + escape(feature.owner) + "・・;
         }
-        return "<b>未启用</b>（runtime_error=" + escape(blankTo(feature.runtimeExceptionClass, "unknown")) + "）";
+        return "<b>譛ｪ蜷ｯ逕ｨ</b>・・untime_error=" + escape(blankTo(feature.runtimeExceptionClass, "unknown")) + "・・;
     }
 
 /**
- * 方法说明：renderFeatureStatusSimple，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗷enderFeatureStatusSimple・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String renderFeatureStatusSimple(String featureKey, FeatureResolution feature) {
         if (feature == null) {
@@ -1725,9 +1252,9 @@ public final class ReportBuilder {
         return "disabled_runtime_error (" + blankTo(feature.runtimeExceptionClass, "unknown") + ")";
     }
 /**
- * 方法说明：sortedWatch，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嘖ortedWatch・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private List<WatchlistAnalysis> sortedWatch(List<WatchlistAnalysis> rows) {
         if (rows == null || rows.isEmpty()) return List.of();
@@ -1737,9 +1264,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：sortedMarket，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嘖ortedMarket・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private List<ScoredCandidate> sortedMarket(List<ScoredCandidate> rows) {
         if (rows == null || rows.isEmpty()) return List.of();
@@ -1749,9 +1276,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：buildTopSelection，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喘uildTopSelection・瑚ｴ溯ｴ｣譫・ｻｺ逶ｮ譬・ｯｹ雎｡謌冶ｾ灘・蜀・ｮｹ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private CandidateSelection buildTopSelection(
             List<ScoredCandidate> rows,
@@ -1796,9 +1323,9 @@ public final class ReportBuilder {
                 );
             }
             String reason = partialBlocked
-                    ? ("Top5：跳过（scan=" + blankTo(marketScanStatus, "PARTIAL") + " 且 coverage="
-                    + fmt1(fetchCoveragePct) + "% < " + fmt1(minFetchCoverage) + "%）")
-                    : ("Top5：跳过（coverage=" + fmt1(fetchCoveragePct) + "% < " + fmt1(minFetchCoverage) + "%）");
+                    ? ("Top5・夊ｷｳ霑・ｼ・can=" + blankTo(marketScanStatus, "PARTIAL") + " 荳・coverage="
+                    + fmt1(fetchCoveragePct) + "% < " + fmt1(minFetchCoverage) + "%・・)
+                    : ("Top5・夊ｷｳ霑・ｼ・overage=" + fmt1(fetchCoveragePct) + "% < " + fmt1(minFetchCoverage) + "%・・);
             funnel.mainReasons = List.of(reason);
             return new CandidateSelection(List.of(), List.of(), funnel, reason);
         }
@@ -1896,9 +1423,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：parseIndicators，负责解析输入内容并转换结构。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗔arseIndicators・瑚ｴ溯ｴ｣隗｣譫占ｾ灘・蜀・ｮｹ蟷ｶ霓ｬ謐｢扈捺桷縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private IndicatorData parseIndicators(String json, double fallbackClose) {
         JSONObject root = safeJson(json);
@@ -1921,9 +1448,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：assessRisk，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾ssessRisk・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private RiskAssessment assessRisk(IndicatorData ind) {
         double minVol = config.getDouble("risk.minVolume", 50000.0);
@@ -1961,9 +1488,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：toTradePlanInput，负责转换数据结构用于后续处理。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗾oTradePlanInput・瑚ｴ溯ｴ｣霓ｬ謐｢謨ｰ謐ｮ扈捺桷逕ｨ莠主錘扈ｭ螟・炊縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private TradePlanBuilder.Input toTradePlanInput(IndicatorData ind) {
         return new TradePlanBuilder.Input(
@@ -1975,9 +1502,9 @@ public final class ReportBuilder {
         );
     }
 /**
- * 方法说明：normalizeReasons，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗜ormalizeReasons・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private List<String> normalizeReasons(String reasonsJson, int maxItems) {
         JSONObject root = safeJson(reasonsJson);
@@ -1994,17 +1521,17 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：aiSummaryLines，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啾iSummaryLines・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private List<String> aiSummaryLines(WatchlistAnalysis row) {
         List<String> out = new ArrayList<>();
         String summary = normalizeAiSummaryText(row.aiSummary);
         if (summary.isEmpty()) {
-            out.add("1) 今日关键事件：暂无数据");
-            out.add("2) 利好/利空：暂无数据/暂无数据");
-            out.add("3) 关注点：暂无数据");
+            out.add("1) 莉頑律蜈ｳ髞ｮ莠倶ｻｶ・壽嘯譌謨ｰ謐ｮ");
+            out.add("2) 蛻ｩ螂ｽ/蛻ｩ遨ｺ・壽嘯譌謨ｰ謐ｮ/證よ裏謨ｰ謐ｮ");
+            out.add("3) 蜈ｳ豕ｨ轤ｹ・壽嘯譌謨ｰ謐ｮ");
             return out;
         }
         List<String> lines = toReadableLines(summary);
@@ -2017,65 +1544,96 @@ public final class ReportBuilder {
     }
 
     private String normalizeAiSummaryText(String raw) {
-        String text = TextFormatter.toPlainText(blankTo(raw, ""));
+        String text = TextFormatter.cleanForEmail(blankTo(raw, ""));
         text = text
                 .replaceAll("\\[(.+?)]\\((https?://[^)]+)\\)", "$1")
-                .replaceAll("(?m)^\\s{0,3}[-*+•]+\\s+", "")
+                .replaceAll("(?m)^\\s{0,3}[-*+窶｢]+\\s+", "")
                 .replaceAll("`+", "")
                 .replaceAll("\\\\n", "\n")
+                .replaceAll("(?i)\\bunkown\\b", "unknown")
                 .trim();
+        if (isLowValueAiText(text)) {
+            return "";
+        }
         return text;
     }
 
     private String sanitizeInlineText(String raw) {
         String text = normalizeAiSummaryText(raw);
+        if (isLowValueAiText(text)) {
+            return "";
+        }
         return text.replace("\r", " ").replace("\n", " ").trim();
     }
 
     private List<String> toReadableLines(String text) {
         List<String> out = new ArrayList<>();
         String normalized = blankTo(text, "").replace("\r\n", "\n").replace("\r", "\n");
+        Set<String> seen = new LinkedHashSet<>();
         for (String part : normalized.split("\n")) {
             String line = part == null ? "" : part.trim();
             if (line.isEmpty()) {
                 continue;
             }
-            out.add(line);
+            line = line.replaceAll("(?i)\\bunkown\\b", "未知")
+                    .replaceAll("(?i)\\bunknown\\b", "未知")
+                    .trim();
+            if (isLowValueAiText(line)) {
+                continue;
+            }
+            if (seen.add(line)) {
+                out.add(line);
+            }
         }
         return out;
     }
 
+    private boolean isLowValueAiText(String text) {
+        String normalized = blankTo(text, "").replace("\r", " ").replace("\n", " ").trim();
+        if (normalized.isEmpty()) {
+            return true;
+        }
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (lower.matches("^(unknown|unkown|n/?a|none|null|nil|--|-|\\(unknown\\))$")) {
+            return true;
+        }
+        if (lower.startsWith("ai unavailable:") || lower.startsWith("ai skipped:")) {
+            return true;
+        }
+        return lower.contains("legacy pipeline failed");
+    }
+
     private WatchDecision decideForWatchAction(WatchlistAnalysis w, boolean isClose) {
         if (w == null) {
-            return new WatchDecision("WAIT", "无数据", "", null);
+            return new WatchDecision("WAIT", "譌謨ｰ謐ｮ", "", null);
         }
         Outcome<TradePlan> outcome = tradePlanBuilder.buildForWatchlist(w);
         TradePlan plan = outcome != null && outcome.value != null ? outcome.value : TradePlan.invalid();
-        String invalidPlanReason = plan.valid ? "" : ("计划无效：" + (outcome == null || outcome.causeCode == null ? CauseCode.PLAN_INVALID.name() : outcome.causeCode.name()));
+        String invalidPlanReason = plan.valid ? "" : ("隶｡蛻呈裏謨茨ｼ・ + (outcome == null || outcome.causeCode == null ? CauseCode.PLAN_INVALID.name() : outcome.causeCode.name()));
 
         String status = blankTo(w.technicalStatus, "").toUpperCase(Locale.ROOT);
         if ("NO_MARKET_DATA".equals(status) || w.barsCount <= 0 || !w.fetchSuccess) {
-            return new WatchDecision("WAIT", "行情缺失（不交易）", "", plan);
+            return new WatchDecision("WAIT", "陦梧ュ郛ｺ螟ｱ・井ｸ堺ｺ､譏難ｼ・, "", plan);
         }
         if (!(Double.isFinite(w.lastClose) && w.lastClose > 0.0)) {
-            return new WatchDecision("WAIT", "价格无效（不交易）", "", plan);
+            return new WatchDecision("WAIT", "莉ｷ譬ｼ譌謨茨ｼ井ｸ堺ｺ､譏難ｼ・, "", plan);
         }
         if (isClose && plan.valid && w.lastClose <= plan.stopLoss) {
-            return new WatchDecision("SELL", "跌破止损", invalidPlanReason, plan);
+            return new WatchDecision("SELL", "霍檎ｴ豁｢謐・, invalidPlanReason, plan);
         }
 
         RiskAssessment risk = assessRisk(parseIndicators(w.technicalIndicatorsJson, w.lastClose));
         boolean highRisk = risk.grade == RiskGrade.HIGH || "HIGH".equalsIgnoreCase(blankTo(w.risk, ""));
         if (highRisk && w.technicalScore < 65.0) {
-            return new WatchDecision("REDUCE", "风险高且评分走弱", invalidPlanReason, plan);
+            return new WatchDecision("REDUCE", "鬟朱勦鬮倅ｸ碑ｯ・・襍ｰ蠑ｱ", invalidPlanReason, plan);
         }
         if ("CANDIDATE".equalsIgnoreCase(blankTo(w.technicalStatus, "")) && w.technicalScore >= 80.0) {
-            return new WatchDecision("BUY", highRisk ? "强信号但高风险：仅小仓≤3%" : "强信号：允许小仓≤5%", invalidPlanReason, plan);
+            return new WatchDecision("BUY", highRisk ? "蠑ｺ菫｡蜿ｷ菴・ｫ倬｣朱勦・壻ｻ・ｰ丈ｻ凪王3%" : "蠑ｺ菫｡蜿ｷ・壼・隶ｸ蟆丈ｻ凪王5%", invalidPlanReason, plan);
         }
         if (w.technicalScore >= 65.0) {
-            return new WatchDecision("HOLD", "评分尚可：持有观察", "", plan);
+            return new WatchDecision("HOLD", "隸・・蟆壼庄・壽戟譛芽ｧょｯ・, "", plan);
         }
-        return new WatchDecision("WAIT", "信号不足：观望", "", plan);
+        return new WatchDecision("WAIT", "菫｡蜿ｷ荳崎ｶｳ・夊ｧよ悍", "", plan);
     }
 
     private WatchDecisionRow pickBestWatchDecision(List<WatchlistAnalysis> watchRows, boolean isClose) {
@@ -2118,9 +1676,9 @@ public final class ReportBuilder {
     }
 
     private String noviceConclusion(double indicatorCoveragePct) {
-        if (indicatorCoveragePct < 50.0) return "不建议交易（仅观察）";
-        if (indicatorCoveragePct < 80.0) return "允许小仓试单（单票≤3%）";
-        return "允许正常仓位（单票≤5%）";
+        if (indicatorCoveragePct < 50.0) return "荳榊ｻｺ隶ｮ莠､譏難ｼ井ｻ・ｧょｯ滂ｼ・;
+        if (indicatorCoveragePct < 80.0) return "蜈∬ｮｸ蟆丈ｻ楢ｯ募黒・亥黒逾ｨ竕､3%・・;
+        return "蜈∬ｮｸ豁｣蟶ｸ莉謎ｽ搾ｼ亥黒逾ｨ竕､5%・・;
     }
 
     private boolean containsRiskTag(List<String> tags, String target) {
@@ -2152,15 +1710,15 @@ public final class ReportBuilder {
 
     private ActionAdvice actionAdviceV2(double fetchCoveragePct, double indicatorCoveragePct, int candidateCount, List<CandidateCard> cards) {
         if (indicatorCoveragePct < 50.0 || fetchCoveragePct < 50.0) {
-            return new ActionAdvice("仅观察", "bad", "行情/指标缺失：今日仅观察，不交易");
+            return new ActionAdvice("莉・ｧょｯ・, "bad", "陦梧ュ/謖・・ｼｺ螟ｱ・壻ｻ頑律莉・ｧょｯ滂ｼ御ｸ堺ｺ､譏・);
         }
         if (indicatorCoveragePct < 80.0) {
-            return new ActionAdvice("小仓试单", "warn", "覆盖率一般，建议只做小仓位并严格止损");
+            return new ActionAdvice("蟆丈ｻ楢ｯ募黒", "warn", "隕・尠邇・ｸ闊ｬ・悟ｻｺ隶ｮ蜿ｪ蛛壼ｰ丈ｻ謎ｽ榊ｹｶ荳･譬ｼ豁｢謐・);
         }
         if (candidateCount <= 1) {
-            return new ActionAdvice("仅观察", "gray", "有效信号太少，今天不建议开新仓");
+            return new ActionAdvice("莉・ｧょｯ・, "gray", "譛画譜菫｡蜿ｷ螟ｪ蟆托ｼ御ｻ雁､ｩ荳榊ｻｺ隶ｮ蠑譁ｰ莉・);
         }
-        return new ActionAdvice("可执行", "good", "覆盖率正常，可参考计划执行");
+        return new ActionAdvice("蜿ｯ謇ｧ陦・, "good", "隕・尠邇・ｭ｣蟶ｸ・悟庄蜿り・ｮ｡蛻呈鴬陦・);
     }
 
     private ActionAdvice actionAdvice(double fetchCoveragePct, double indicatorCoveragePct, int candidateCount, List<CandidateCard> cards) {
@@ -2171,27 +1729,27 @@ public final class ReportBuilder {
         double avgScoreTryThreshold = config.getDouble("report.advice.avg_score_try_threshold", 72.0);
         double avgScore = cards.isEmpty() ? 0.0 : cards.stream().mapToDouble(c -> c.score).average().orElse(0.0);
         if (fetchCoveragePct < fetchLowPct) {
-            return new ActionAdvice("观望", "bad", "FETCH_COVERAGE 低于" + fmt1(fetchLowPct) + "%，覆盖不足，不建议据此交易。");
+            return new ActionAdvice("隗よ悍", "bad", "FETCH_COVERAGE 菴惹ｺ・ + fmt1(fetchLowPct) + "%・瑚ｦ・尠荳崎ｶｳ・御ｸ榊ｻｺ隶ｮ謐ｮ豁､莠､譏薙・);
         }
         if (indicatorCoveragePct < indicatorLowPct) {
-            return new ActionAdvice("谨慎", "warn", "INDICATOR_COVERAGE 偏低，指标缺失较多。");
+            return new ActionAdvice("隹ｨ諷・, "warn", "INDICATOR_COVERAGE 蛛丈ｽ趣ｼ梧欠譬・ｼｺ螟ｱ霎・､壹・);
         }
         if (fetchCoveragePct < fetchWarnPct) {
-            return new ActionAdvice("谨慎", "warn", "FETCH_COVERAGE 在" + fmt1(fetchLowPct) + "%~" + fmt1(fetchWarnPct) + "%，数据不完整。");
+            return new ActionAdvice("隹ｨ諷・, "warn", "FETCH_COVERAGE 蝨ｨ" + fmt1(fetchLowPct) + "%~" + fmt1(fetchWarnPct) + "%・梧焚謐ｮ荳榊ｮ梧紛縲・);
         }
         if (candidateCount <= 1) {
-            return new ActionAdvice("观望", "gray", "候选数量过少，信号不足。");
+            return new ActionAdvice("隗よ悍", "gray", "蛟咎画焚驥剰ｿ・ｰ托ｼ御ｿ｡蜿ｷ荳崎ｶｳ縲・);
         }
         if (candidateCount <= candidateTryMax || avgScore < avgScoreTryThreshold) {
-            return new ActionAdvice("小仓试错", "info", "信号强度一般，建议小仓验证。");
+            return new ActionAdvice("蟆丈ｻ楢ｯ暮漠", "info", "菫｡蜿ｷ蠑ｺ蠎ｦ荳闊ｬ・悟ｻｺ隶ｮ蟆丈ｻ馴ｪ瑚ｯ√・);
         }
-        return new ActionAdvice("正常", "good", "覆盖率与候选数量均正常。");
+        return new ActionAdvice("豁｣蟶ｸ", "good", "隕・尠邇・ｸ主咎画焚驥丞插豁｣蟶ｸ縲・);
     }
 
 /**
- * 方法说明：countPriceSuspects，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喞ountPriceSuspects・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private int countPriceSuspects(List<WatchlistAnalysis> rows) {
         int count = 0;
@@ -2203,9 +1761,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：joinSuspectTickers，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗚oinSuspectTickers・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String joinSuspectTickers(List<WatchlistAnalysis> rows) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
@@ -2221,9 +1779,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：watchName，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗹atchName・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String watchName(WatchlistAnalysis row) {
         String code = blankTo(row.code, "").toUpperCase(Locale.ROOT);
@@ -2232,9 +1790,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：candidateName，负责判断条件是否满足。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喞andidateName・瑚ｴ溯ｴ｣蛻､譁ｭ譚｡莉ｶ譏ｯ蜷ｦ貊｡雜ｳ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String candidateName(ScoredCandidate c) {
         String code = blankTo(c.code, "").toUpperCase(Locale.ROOT);
@@ -2243,9 +1801,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：isDerivative，负责判断条件是否满足。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喨sDerivative・瑚ｴ溯ｴ｣蛻､譁ｭ譚｡莉ｶ譏ｯ蜷ｦ貊｡雜ｳ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private boolean isDerivative(ScoredCandidate c) {
         String text = (blankTo(c.name, "") + " " + blankTo(c.market, "") + " " + blankTo(c.code, "")).toUpperCase(Locale.ROOT);
@@ -2256,40 +1814,40 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：scoreTier，负责计算评分并输出分值。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嘖coreTier・瑚ｴ溯ｴ｣隶｡邂苓ｯ・・蟷ｶ霎灘・蛻・ｼ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String scoreTier(double score) {
         double focusThreshold = config.getDouble("report.score.tier.focus_threshold", 80.0);
         double observeThreshold = config.getDouble("report.score.tier.observe_threshold", 65.0);
-        if (score >= focusThreshold) return "关注";
-        if (score >= observeThreshold) return "观察";
-        return "弱";
+        if (score >= focusThreshold) return "蜈ｳ豕ｨ";
+        if (score >= observeThreshold) return "隗ょｯ・;
+        return "蠑ｱ";
     }
 
 /**
- * 方法说明：riskText，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗷iskText・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String riskText(RiskAssessment risk) {
-        return risk.grade == RiskGrade.HIGH ? "高" : (risk.grade == RiskGrade.MID ? "中" : "低");
+        return risk.grade == RiskGrade.HIGH ? "鬮・ : (risk.grade == RiskGrade.MID ? "荳ｭ" : "菴・);
     }
 
 /**
- * 方法说明：safeTickerKey，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嘖afeTickerKey・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String safeTickerKey(String ticker) {
         return blankTo(ticker, "").toLowerCase(Locale.ROOT);
     }
 
 /**
- * 方法说明：configDesc，负责根据键名返回参数说明。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喞onfigDesc・瑚ｴ溯ｴ｣譬ｹ謐ｮ髞ｮ蜷崎ｿ泌屓蜿よ焚隸ｴ譏弱・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String configDesc(String key) {
         if (key == null || key.trim().isEmpty()) {
@@ -2297,76 +1855,76 @@ public final class ReportBuilder {
         }
         switch (key) {
             case "app.zone":
-                return "运行时区";
+                return "霑占｡梧慮蛹ｺ";
             case "app.schedule.enabled":
-                return "是否启用定时任务";
+                return "譏ｯ蜷ｦ蜷ｯ逕ｨ螳壽慮莉ｻ蜉｡";
             case "schedule.zone":
-                return "调度时区";
+                return "隹・ｺｦ譌ｶ蛹ｺ";
             case "schedule.times":
             case "schedule.time":
-                return "调度触发时间";
+                return "隹・ｺｦ隗ｦ蜿第慮髣ｴ";
             case "report.dir":
-                return "报告输出目录";
+                return "謚･蜻願ｾ灘・逶ｮ蠖・;
             case "scan.top_n":
-                return "全市场扫描默认 TopN";
+                return "蜈ｨ蟶ょ惻謇ｫ謠城ｻ倩ｮ､ TopN";
             case "scan.market_reference_top_n":
-                return "市场参考候选数量";
+                return "蟶ょ惻蜿り・咎画焚驥・;
             case "scan.min_score":
-                return "最小入选分数";
+                return "譛蟆丞・騾牙・謨ｰ";
             case "scan.min_history_bars":
-                return "最小历史K线数量";
+                return "譛蟆丞紙蜿ｲK郤ｿ謨ｰ驥・;
             case "scan.fresh_days":
-                return "行情数据允许的最大滞后天数";
+                return "陦梧ュ謨ｰ謐ｮ蜈∬ｮｸ逧・怙螟ｧ貊槫錘螟ｩ謨ｰ";
             case "scan.cache.fresh_days":
-                return "缓存数据允许的最大滞后天数";
+                return "郛灘ｭ俶焚謐ｮ蜈∬ｮｸ逧・怙螟ｧ貊槫錘螟ｩ謨ｰ";
             case "backtest.hold_days":
-                return "预测周期（持有天数）";
+                return "鬚・ｵ句捉譛滂ｼ域戟譛牙､ｩ謨ｰ・・;
             case "report.top5.skip_on_partial":
-                return "部分扫描时是否跳过Top5";
+                return "驛ｨ蛻・沖謠乗慮譏ｯ蜷ｦ霍ｳ霑Ⅰop5";
             case "report.top5.min_fetch_coverage_pct":
-                return "Top5最小抓取覆盖率";
+                return "Top5譛蟆乗鞄蜿冶ｦ・尠邇・;
             case "report.top5.allow_partial_when_coverage_ge":
-                return "部分扫描放行阈值";
+                return "驛ｨ蛻・沖謠乗叛陦碁・蛟ｼ";
             case "report.metrics.top5_perf.enabled":
-                return "是否启用Top5绩效指标";
+                return "譏ｯ蜷ｦ蜷ｯ逕ｨTop5扈ｩ謨域欠譬・;
             case "report.metrics.top5_perf.win_rate_30d":
-                return "Top5近30日胜率";
+                return "Top5霑・0譌･閭懃紫";
             case "report.metrics.top5_perf.max_drawdown_30d":
-                return "Top5近30日最大回撤";
+                return "Top5霑・0譌･譛螟ｧ蝗樊彫";
             case "report.coverage.show_scope":
-                return "是否显示覆盖率口径";
+                return "譏ｯ蜷ｦ譏ｾ遉ｺ隕・尠邇・哨蠕・;
             case "report.mode.intraday.hideEntry":
-                return "盘中模式隐藏入场位";
+                return "逶倅ｸｭ讓｡蠑城嚼阯丞・蝨ｺ菴・;
             case "report.advice.fetch_low_pct":
-                return "行动建议低覆盖阈值";
+                return "陦悟勘蟒ｺ隶ｮ菴手ｦ・尠髦亥ｼ";
             case "report.advice.indicator_low_pct":
-                return "行动建议低指标覆盖阈值";
+                return "陦悟勘蟒ｺ隶ｮ菴取欠譬・ｦ・尠髦亥ｼ";
             case "report.advice.fetch_warn_pct":
-                return "行动建议告警覆盖阈值";
+                return "陦悟勘蟒ｺ隶ｮ蜻願ｭｦ隕・尠髦亥ｼ";
             case "report.advice.candidate_try_max":
-                return "小仓试错候选数阈值";
+                return "蟆丈ｻ楢ｯ暮漠蛟咎画焚髦亥ｼ";
             case "report.advice.avg_score_try_threshold":
-                return "小仓试错平均分阈值";
+                return "蟆丈ｻ楢ｯ暮漠蟷ｳ蝮・・髦亥ｼ";
             case "report.score.tier.focus_threshold":
-                return "分层：关注阈值";
+                return "蛻・ｱゑｼ壼・豕ｨ髦亥ｼ";
             case "report.score.tier.observe_threshold":
-                return "分层：观察阈值";
+                return "蛻・ｱゑｼ夊ｧょｯ滄・蛟ｼ";
             case "filter.min_signals":
-                return "筛选最小信号数量";
+                return "遲幃画怙蟆丈ｿ｡蜿ｷ謨ｰ驥・;
             case "filter.hard.max_drop_3d_pct":
-                return "3日最大允许跌幅";
+                return "3譌･譛螟ｧ蜈∬ｮｸ霍悟ｹ・;
             case "risk.max_atr_pct":
-                return "风控ATR上限(%)";
+                return "鬟取而ATR荳企剞(%)";
             case "risk.max_volatility_pct":
-                return "风控波动率上限(%)";
+                return "鬟取而豕｢蜉ｨ邇・ｸ企剞(%)";
             case "risk.max_drawdown_pct":
-                return "风控回撤上限(%)";
+                return "鬟取而蝗樊彫荳企剞(%)";
             case "risk.min_volume_ratio":
-                return "风控最小量比";
+                return "鬟取而譛蟆城㍼豈・;
             case "risk.fail_atr_multiplier":
-                return "ATR触发失败倍数";
+                return "ATR隗ｦ蜿大､ｱ雍･蛟肴焚";
             case "risk.fail_volatility_multiplier":
-                return "波动率触发失败倍数";
+                return "豕｢蜉ｨ邇・ｧｦ蜿大､ｱ雍･蛟肴焚";
             case "risk.penalty.atr_scale":
             case "risk.penalty.atr_cap":
             case "risk.penalty.volatility_scale":
@@ -2374,53 +1932,49 @@ public final class ReportBuilder {
             case "risk.penalty.drawdown_scale":
             case "risk.penalty.drawdown_cap":
             case "risk.penalty.liquidity":
-                return "风险惩罚参数";
+                return "鬟朱勦諠ｩ鄂壼盾謨ｰ";
             case "rr.min":
-                return "最小盈亏比";
+                return "譛蟆冗寤莠乗ｯ・;
             case "plan.rr.min_floor":
-                return "计划最小盈亏比下限";
+                return "隶｡蛻呈怙蟆冗寤莠乗ｯ比ｸ矩剞";
             case "plan.entry.buffer_pct":
-                return "入场缓冲百分比";
+                return "蜈･蝨ｺ郛灘・逋ｾ蛻・ｯ・;
             case "plan.stop.atr_mult":
-                return "止损ATR倍数";
+                return "豁｢謐蘗TR蛟肴焚";
             case "plan.target.high_lookback_mult":
-                return "目标价回看高点系数";
+                return "逶ｮ譬・ｻｷ蝗樒恚鬮倡せ邉ｻ謨ｰ";
             case "position.single.maxPct":
-                return "系统单票仓位上限";
+                return "邉ｻ扈溷黒逾ｨ莉謎ｽ堺ｸ企剞";
             case "position.total.maxPct":
-                return "系统总仓位上限";
+                return "邉ｻ扈滓ｻ莉謎ｽ堺ｸ企剞";
             case "report.position.max_single_pct":
-                return "报告单票仓位上限(%)";
+                return "謚･蜻雁黒逾ｨ莉謎ｽ堺ｸ企剞(%)";
             case "report.position.max_total_pct":
-                return "报告总仓位上限(%)";
-            case "polymarket.enabled":
-                return "是否启用Polymarket信号";
-            case "polymarket.impact.mode":
-                return "Polymarket影响模式";
+                return "謚･蜻頑ｻ莉謎ｽ堺ｸ企剞(%)";
             case "watchlist.path":
-                return "自选股文件路径";
+                return "閾ｪ騾芽ぃ譁・ｻｶ霍ｯ蠕・;
             case "watchlist.non_jp_handling":
-                return "非日股处理策略";
+                return "髱樊律閧｡螟・炊遲也払";
             case "watchlist.default_market_for_alpha":
-                return "字母代码默认市场";
+                return "蟄玲ｯ堺ｻ｣遐・ｻ倩ｮ､蟶ょ惻";
             default:
-                return "关键运行参数";
+                return "蜈ｳ髞ｮ霑占｡悟盾謨ｰ";
         }
     }
 
 /**
- * 方法说明：tile，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗾ile・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String tile(String key, String value) {
         return "<div class='tile'><div class='k'>" + escape(key) + "</div><div class='v'>" + value + "</div></div>";
     }
 
 /**
- * 方法说明：safeJson，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嘖afeJson・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private JSONObject safeJson(String raw) {
         if (raw == null || raw.trim().isEmpty()) return new JSONObject();
@@ -2432,9 +1986,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：finitePositive，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喃initePositive・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private double finitePositive(double first, double fallback) {
         if (Double.isFinite(first) && first > 0.0) return first;
@@ -2442,9 +1996,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：coveragePct，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喞overagePct・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private double coveragePct(int universeSize, int scannedSize) {
         if (universeSize <= 0) return 0.0;
@@ -2452,9 +2006,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：formatCoverage，负责格式化数据用于展示或传输。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喃ormatCoverage・瑚ｴ溯ｴ｣譬ｼ蠑丞喧謨ｰ謐ｮ逕ｨ莠主ｱ慕､ｺ謌紋ｼ霎薙・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String formatCoverage(Diagnostics.CoverageMetric metric) {
         if (metric == null) {
@@ -2464,18 +2018,18 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：round2，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗷ound2・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
     }
 
 /**
- * 方法说明：clamp，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喞lamp・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private double clamp(double value, double min, double max) {
         if (!Double.isFinite(value)) return min;
@@ -2485,36 +2039,49 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：fmt1，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喃mt1・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String fmt1(double value) {
         return Double.isFinite(value) ? String.format(Locale.US, "%.1f", value) : "-";
     }
 
 /**
- * 方法说明：fmt2，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喃mt2・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String fmt2(double value) {
         return Double.isFinite(value) ? String.format(Locale.US, "%.2f", value) : "-";
     }
 
+    private String formatPlanLevelWithDelta(double levelPrice, double latestPrice, boolean stopLoss) {
+        if (!Double.isFinite(levelPrice) || levelPrice <= 0.0) {
+            return "-";
+        }
+        String priceText = fmt2(levelPrice);
+        if (!Double.isFinite(latestPrice) || latestPrice <= 0.0) {
+            return priceText;
+        }
+        double pct = (levelPrice - latestPrice) / latestPrice * 100.0;
+        String color = stopLoss ? "red" : (pct >= 0.0 ? "#15803d" : "red");
+        return priceText + " <span style='color:" + color + "'>(" + String.format(Locale.US, "%+.1f", pct) + "%)</span>";
+    }
+
 /**
- * 方法说明：signed，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嘖igned・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String signed(double value) {
         return Double.isFinite(value) ? String.format(Locale.US, "%+.2f", value) : "-";
     }
 
 /**
- * 方法说明：trimText，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嗾rimText・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String trimText(String text, int maxLen) {
         String t = blankTo(text, "");
@@ -2523,9 +2090,9 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：blankTo，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喘lankTo・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String blankTo(String value, String fallback) {
         String t = value == null ? "" : value.trim();
@@ -2533,18 +2100,18 @@ public final class ReportBuilder {
     }
 
 /**
- * 方法说明：safe，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ嘖afe・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String safe(String value) {
         return value == null ? "" : value.trim();
     }
 
 /**
- * 方法说明：escape，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ啼scape・瑚ｴ溯ｴ｣謇ｧ陦御ｸ壼苅騾ｻ霎大ｹｶ莠ｧ蜃ｺ扈捺棡縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
     private String escape(String text) {
         if (text == null) return "";
@@ -2663,9 +2230,9 @@ public final class ReportBuilder {
         }
 
 /**
- * 方法说明：hasRiskInputs，负责判断条件是否满足。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
+ * 譁ｹ豕戊ｯｴ譏趣ｼ喇asRiskInputs・瑚ｴ溯ｴ｣蛻､譁ｭ譚｡莉ｶ譏ｯ蜷ｦ貊｡雜ｳ縲・
+ * 螟・炊豬∫ｨ具ｼ壻ｼ夂ｻ灘粋蜈･蜿ゆｸ主ｽ灘燕荳贋ｸ区枚謇ｧ陦御ｸ壼苅騾ｻ霎托ｼ悟ｹｶ霑泌屓扈捺棡謌匁峩譁ｰ蜀・Κ迥ｶ諤√・
+ * 扈ｴ謚､謠千､ｺ・夊ｰ・紛豁､譁ｹ豕墓慮蟒ｺ隶ｮ蜷梧ｭ･譽譟･隹・畑譁ｹ縲∝ｼょｸｸ蛻・髪荳取律蠢苓ｾ灘・縲・
  */
         private boolean hasRiskInputs() {
             return Double.isFinite(lastClose) && lastClose > 0.0
@@ -2701,3 +2268,4 @@ public final class ReportBuilder {
         }
     }
 }
+

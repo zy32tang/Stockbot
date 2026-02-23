@@ -15,6 +15,7 @@ import com.stockbot.jp.model.DailyRunOutcome;
 import com.stockbot.jp.model.RunRow;
 import com.stockbot.jp.model.ScoredCandidate;
 import com.stockbot.jp.model.WatchlistAnalysis;
+import com.stockbot.jp.output.HtmlPostProcessor;
 import com.stockbot.jp.output.Mailer;
 import com.stockbot.jp.output.ReportBuilder;
 import com.stockbot.jp.runner.DailyRunner;
@@ -55,17 +56,12 @@ import java.util.stream.Collectors;
 public final class StockBotApplication {
     private static final DateTimeFormatter SCHEDULE_TIME_FMT = DateTimeFormatter.ofPattern("H:mm");
     private static final DateTimeFormatter DISPLAY_TS_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z");
-    private static final Pattern HTML_IMG_SRC_PATTERN = Pattern.compile("(<img\\b[^>]*?\\bsrc=['\"])([^'\"]+)(['\"][^>]*>)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern HTML_TREND_IMG_PATTERN = Pattern.compile("<img\\b[^>]*\\bsrc=['\"]trends/[^'\"]+['\"][^>]*>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern HTML_TREND_LABEL_PATTERN = Pattern.compile(
-            "<div\\b[^>]*>\\s*<b>\\s*趋势图\\s*: ?\\s*</b>\\s*</div>",
-            Pattern.CASE_INSENSITIVE
-    );
     private static final Pattern REPORT_TS_PATTERN = Pattern.compile("jp_daily_(\\d{8}_\\d{6})\\.html", Pattern.CASE_INSENSITIVE);
     private static final Pattern INDICATOR_COVERAGE_PCT_PATTERN = Pattern.compile("INDICATOR_COVERAGE[^\\n%]*\\(([0-9]+(?:\\.[0-9]+)?)%\\)", Pattern.CASE_INSENSITIVE);
     private static volatile boolean LOG_ROUTE_INSTALLED = false;
     private static final String BG_SCAN_LAST_STARTUP_KEY = "daily.background_scan.last_startup_at";
     private static final Duration BG_SCAN_TRIGGER_INTERVAL = Duration.ofHours(8);
+    private final HtmlPostProcessor htmlPostProcessor = new HtmlPostProcessor();
     private EventMemoryService eventMemoryService;
     private boolean runtimeSummaryLogged = false;
 
@@ -444,7 +440,7 @@ private int sendTestDailyReportEmail(
         Instant runAt = outcome.startedAt == null ? Instant.now() : outcome.startedAt;
         String subject = String.format(
                 Locale.US,
-                "%s 每日报呁E%s 候选数 %d [run_id=%d]",
+                "%s 豈乗律謚･蜻・%s 蛟咎画焚 %d [run_id=%d]",
                 settings.subjectPrefix,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd").format(runAt.atZone(zoneId)),
                 outcome.marketReferenceCandidates.size(),
@@ -453,7 +449,7 @@ private int sendTestDailyReportEmail(
         String text = "";
         String rawHtml = Files.readString(reportPath, StandardCharsets.UTF_8);
         List<Path> attachments = collectReportAttachments(rawHtml, reportPath);
-        String html = stripTrendImagesFromHtml(rawHtml);
+        String html = htmlPostProcessor.cleanDocument(rawHtml, true);
         boolean sent = mailer.send(settings, subject, text, html, attachments);
         if (sent) {
             String modeLabel = settings.dryRun ? "Mail dry-run completed for " : "Email sent to ";
@@ -478,7 +474,7 @@ private int sendTestDailyReportEmail(
         boolean noviceMode = cmd != null && cmd.hasOption("novice");
         String rawHtml = Files.readString(outcome.reportPath, StandardCharsets.UTF_8);
         List<Path> attachments = noviceMode ? List.of() : collectReportAttachments(rawHtml, outcome.reportPath);
-        String html = noviceMode ? "" : stripTrendImagesFromHtml(rawHtml);
+        String html = noviceMode ? "" : htmlPostProcessor.cleanDocument(rawHtml, true);
         String text = "";
         if (noviceMode) {
             double indicatorCoveragePct = parseIndicatorCoveragePct(rawHtml);
@@ -514,17 +510,15 @@ private int sendTestDailyReportEmail(
         int newsConcurrent = config.getInt("news.concurrent", 10);
         int aiTimeoutSec = config.getInt("ai.timeout_sec", config.getInt("watchlist.ai.timeout_sec", 180));
         int vectorTopK = config.getInt("vector.memory.signal.top_k", 10);
-        String polymarketMode = config.getString("polymarket.impact.mode", "vector");
         System.out.println(String.format(
                 Locale.US,
-                "RUN_CONFIG cpu=%d max_mem_gb=%d fetch.concurrent=%d news.concurrent=%d ai.timeout_sec=%d vector.signal.top_k=%d polymarket.mode=%s",
+                "RUN_CONFIG cpu=%d max_mem_gb=%d fetch.concurrent=%d news.concurrent=%d ai.timeout_sec=%d vector.signal.top_k=%d",
                 cpu,
                 maxMemGb,
                 fetchConcurrent,
                 newsConcurrent,
                 aiTimeoutSec,
-                vectorTopK,
-                polymarketMode
+                vectorTopK
         ));
     }
 
@@ -599,16 +593,7 @@ private List<Path> collectReportAttachments(String html, Path reportPath) {
         }
 
         if (html != null && !html.isEmpty()) {
-            Matcher matcher = HTML_IMG_SRC_PATTERN.matcher(html);
-            while (matcher.find()) {
-                String src = matcher.group(2) == null ? "" : matcher.group(2).trim();
-                if (src.isEmpty()
-                        || src.startsWith("data:")
-                        || src.startsWith("cid:")
-                        || src.startsWith("http://")
-                        || src.startsWith("https://")) {
-                    continue;
-                }
+            for (String src : htmlPostProcessor.localImageSources(html)) {
                 try {
                     Path imagePath = baseDir.resolve(src).normalize();
                     if (Files.exists(imagePath) && Files.isRegularFile(imagePath)) {
@@ -639,15 +624,6 @@ private List<Path> collectReportAttachments(String html, Path reportPath) {
             }
         }
         return new ArrayList<>(files);
-    }
-
-private String stripTrendImagesFromHtml(String html) {
-        if (html == null || html.isEmpty()) {
-            return "";
-        }
-        String out = HTML_TREND_IMG_PATTERN.matcher(html).replaceAll("");
-        out = HTML_TREND_LABEL_PATTERN.matcher(out).replaceAll("");
-        return out;
     }
 
     private double parseIndicatorCoveragePct(String rawHtml) {
@@ -994,6 +970,3 @@ private boolean sleepUntil(ZonedDateTime next) {
         }
     }
 }
-
-
-

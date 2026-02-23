@@ -6,6 +6,7 @@ COPY pom.xml pom.xml
 RUN mvn -q -DskipTests dependency:go-offline
 
 COPY src src
+COPY scripts scripts
 RUN mvn -q -DskipTests package && \
     JAR_FILE="$(ls target/stockbot-*.jar | grep -v original | head -n 1)" && \
     cp "$JAR_FILE" /build/stockbot.jar

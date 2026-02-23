@@ -39,7 +39,12 @@ public final class TradePlanBuilder {
  */
     public Outcome<TradePlan> build(Input in) {
         if (in == null) {
-            return Outcome.failure(CauseCode.PLAN_INVALID, OWNER, Map.of("reason", "input_null"));
+            return planFailure(
+                    OWNER,
+                    "input_null",
+                    "计划无效：历史数据不足",
+                    Map.of("missing_inputs", List.of("input"))
+            );
         }
 
         List<String> missing = new ArrayList<>();
@@ -48,9 +53,10 @@ public final class TradePlanBuilder {
         if (!isFinitePositive(in.lowLookback)) missing.add("low_lookback");
         if (!isFinitePositive(in.highLookback)) missing.add("high_lookback");
         if (!missing.isEmpty()) {
-            return Outcome.failure(
-                    CauseCode.PLAN_INVALID,
+            return planFailure(
                     OWNER,
+                    "missing_core_inputs",
+                    "计划无效：历史数据不足",
                     Map.of("missing_inputs", missing)
             );
         }
@@ -62,21 +68,61 @@ public final class TradePlanBuilder {
         double stopBuffer = clamp(config.getDouble("stop.loss.bufferPct", 0.02), 0.0, 0.2);
         double atrMult = Math.max(0.1, config.getDouble("plan.stop.atr_mult", 1.5));
         double highLookbackMult = clamp(config.getDouble("plan.target.high_lookback_mult", 0.98), 0.5, 1.5);
+        double maxEntryDeviationPct = Math.max(1.0, config.getDouble("plan.max_entry_deviation_pct", 8.0));
+        double maxVolatilityPct = config.getDouble("risk.max_volatility_pct", 80.0);
+        double minVolumeRatio = config.getDouble("risk.min_volume_ratio", 0.3);
+
+        if (!isFinitePositive(in.atr14)) {
+            return planFailure(
+                    OWNER,
+                    "atr_unavailable",
+                    "计划无效：近期波动/成交量异常",
+                    Map.of("atr14", in.atr14)
+            );
+        }
+        if ((Double.isFinite(in.volatility20Pct) && in.volatility20Pct > maxVolatilityPct)
+                || (Double.isFinite(in.volumeRatio20) && in.volumeRatio20 < minVolumeRatio)) {
+            return planFailure(
+                    OWNER,
+                    "abnormal_volatility_or_liquidity",
+                    "计划无效：近期波动/成交量异常",
+                    Map.of(
+                            "volatility20_pct", in.volatility20Pct,
+                            "max_volatility_pct", maxVolatilityPct,
+                            "volume_ratio20", in.volumeRatio20,
+                            "min_volume_ratio", minVolumeRatio
+                    )
+            );
+        }
 
         double entryMid = in.lastClose;
         double entryLow = round2(entryMid * (1.0 - entryBand));
         double entryHigh = round2(entryMid * (1.0 + entryBand));
+        double entryDeviationPct = Math.abs(entryMid - in.sma20) / in.sma20 * 100.0;
+        if (Double.isFinite(entryDeviationPct) && entryDeviationPct > maxEntryDeviationPct) {
+            return planFailure(
+                    OWNER,
+                    "entry_deviation_too_large",
+                    "计划无效：当前价已严重偏离安全入场区间",
+                    Map.of(
+                            "last_close", round2(entryMid),
+                            "sma20", round2(in.sma20),
+                            "entry_deviation_pct", round2(entryDeviationPct),
+                            "max_entry_deviation_pct", round2(maxEntryDeviationPct)
+                    )
+            );
+        }
 
         double stopByLow = in.lowLookback * (1.0 - stopBuffer);
-        double stopByAtr = Double.isFinite(in.atr14) ? (entryMid - atrMult * in.atr14) : Double.NaN;
+        double stopByAtr = entryMid - atrMult * in.atr14;
         double stopLoss = round2(firstFinitePositive(stopByLow, stopByAtr));
         double riskDist = entryMid - stopLoss;
         if (!Double.isFinite(stopLoss) || !Double.isFinite(riskDist) || riskDist <= 0.0) {
-            return Outcome.failure(
-                    CauseCode.PLAN_INVALID,
+            return planFailure(
                     OWNER,
+                    "invalid_stop_or_risk_distance",
+                    "计划无效：近期波动/成交量异常",
                     Map.of(
-                            "reason", "invalid_stop_or_risk_distance",
                             "entry_mid", round2(entryMid),
                             "stop_loss", stopLoss,
                             "rr_min", rrMin
@@ -87,11 +133,11 @@ public final class TradePlanBuilder {
         double baseTarget = Math.max(in.sma20, in.highLookback * highLookbackMult);
         double takeProfit = round2(Math.max(baseTarget, entryMid + rrMin * riskDist));
         if (!(stopLoss < entryLow && entryLow <= entryHigh && entryHigh < takeProfit)) {
-            return Outcome.failure(
-                    CauseCode.PLAN_INVALID,
+            return planFailure(
                     OWNER,
+                    "price_structure_invalid",
+                    "计划无效：当前价已严重偏离安全入场区间",
                     Map.of(
-                            "reason", "price_structure_invalid",
                             "entry_low", entryLow,
                             "entry_high", entryHigh,
                             "stop_loss", stopLoss,
@@ -102,11 +148,11 @@ public final class TradePlanBuilder {
 
         double rr = (takeProfit - entryMid) / (entryMid - stopLoss);
         if (!Double.isFinite(rr) || rr < rrMin) {
-            return Outcome.failure(
-                    CauseCode.PLAN_INVALID,
+            return planFailure(
                     OWNER,
+                    "rr_below_threshold",
+                    "计划无效：当前价已严重偏离安全入场区间",
                     Map.of(
-                            "reason", "rr_below_threshold",
                             "rr", round2(rr),
                             "rr_min", rrMin
                     )
@@ -127,12 +173,19 @@ public final class TradePlanBuilder {
         details.put("stop_buffer_pct", stopBuffer * 100.0);
         details.put("stop_atr_mult", atrMult);
         details.put("target_high_lookback_mult", highLookbackMult);
+        details.put("entry_deviation_pct", round2(entryDeviationPct));
+        details.put("max_entry_deviation_pct", round2(maxEntryDeviationPct));
         return Outcome.success(plan, OWNER, details);
     }
 
     public Outcome<TradePlan> buildForWatchlist(WatchlistAnalysis w) {
         if (w == null) {
-            return Outcome.failure(CauseCode.PLAN_INVALID, OWNER_WATCH, Map.of("missing_inputs", List.of("watchlist_row")));
+            return planFailure(
+                    OWNER_WATCH,
+                    "watchlist_row_missing",
+                    "计划无效：历史数据不足",
+                    Map.of("missing_inputs", List.of("watchlist_row"))
+            );
         }
 
         JSONObject root = safeJson(w.technicalIndicatorsJson);
@@ -150,6 +203,8 @@ public final class TradePlanBuilder {
                 root.optDouble("bollinger_upper", Double.NaN)
         );
         double atr14 = root.optDouble("atr14", Double.NaN);
+        double volatility20Pct = root.optDouble("volatility20_pct", Double.NaN);
+        double volumeRatio20 = root.optDouble("volume_ratio20", Double.NaN);
 
         List<String> missing = new ArrayList<>();
         if (!isFinitePositive(lastClose)) missing.add("last_close");
@@ -158,9 +213,10 @@ public final class TradePlanBuilder {
         if (!isFinitePositive(highLookback)) missing.add("high_lookback");
 
         if (!missing.isEmpty()) {
-            return Outcome.failure(
-                    CauseCode.PLAN_INVALID,
+            return planFailure(
                     OWNER_WATCH,
+                    "missing_watchlist_inputs",
+                    "计划无效：历史数据不足",
                     Map.of(
                             "missing_inputs", missing,
                             "watch_item", safeText(w.watchItem),
@@ -169,7 +225,7 @@ public final class TradePlanBuilder {
             );
         }
 
-        return build(new Input(lastClose, sma20, lowLookback, highLookback, atr14));
+        return build(new Input(lastClose, sma20, lowLookback, highLookback, atr14, volatility20Pct, volumeRatio20));
     }
 
 /**
@@ -177,6 +233,16 @@ public final class TradePlanBuilder {
  * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
+    private Outcome<TradePlan> planFailure(String owner, String reasonKey, String userMessage, Map<String, Object> extras) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("reason", safeText(reasonKey));
+        details.put("user_message", safeText(userMessage));
+        if (extras != null && !extras.isEmpty()) {
+            details.putAll(extras);
+        }
+        return Outcome.failure(CauseCode.PLAN_INVALID, owner, details);
+    }
+
     private boolean isFinitePositive(double value) {
         return Double.isFinite(value) && value > 0.0;
     }
@@ -237,13 +303,29 @@ public final class TradePlanBuilder {
         public final double lowLookback;
         public final double highLookback;
         public final double atr14;
+        public final double volatility20Pct;
+        public final double volumeRatio20;
 
         public Input(double lastClose, double sma20, double lowLookback, double highLookback, double atr14) {
+            this(lastClose, sma20, lowLookback, highLookback, atr14, Double.NaN, Double.NaN);
+        }
+
+        public Input(
+                double lastClose,
+                double sma20,
+                double lowLookback,
+                double highLookback,
+                double atr14,
+                double volatility20Pct,
+                double volumeRatio20
+        ) {
             this.lastClose = lastClose;
             this.sma20 = sma20;
             this.lowLookback = lowLookback;
             this.highLookback = highLookback;
             this.atr14 = atr14;
+            this.volatility20Pct = volatility20Pct;
+            this.volumeRatio20 = volumeRatio20;
         }
     }
 }

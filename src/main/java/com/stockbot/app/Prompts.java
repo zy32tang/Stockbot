@@ -3,32 +3,53 @@ package com.stockbot.app;
 import com.stockbot.model.NewsItem;
 import com.stockbot.model.StockContext;
 
-/**
- * 模块说明：Prompts（class）。
- * 主要职责：承载 app 模块 的关键逻辑，对外提供可复用的调用入口。
- * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
- */
 public class Prompts {
-/**
- * 方法说明：buildPrompt，负责构建目标对象或输出内容。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
+    private Prompts() {}
+
+    // Keep empty so caller can still pass a system prompt without strict constraints.
+    public static String buildSystemPrompt() {
+        return "";
+    }
+
     public static String buildPrompt(StockContext sc) {
+        StockContext context = sc == null ? new StockContext("") : sc;
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一名财经分析师。请根据以下信息总结该股票最新动态，并指出风险与机会。\n");
-        sb.append("股票代码：").append(sc.ticker).append("\n");
-        sb.append("涨跌幅（%）：").append(sc.pctChange).append("\n");
-        sb.append("总分：").append(sc.totalScore).append("\n");
-        sb.append("触发原因：").append(sc.gateReason).append("\n");
-        sb.append("新闻标题：\n");
+        sb.append("You are a financial analyst.\n");
+        sb.append("Summarize latest stock updates and key risks/opportunities from the input below.\n");
+        sb.append("Ticker: ").append(safe(context.ticker)).append("\n");
+        sb.append("Pct change (%): ").append(context.pctChange == null ? "" : context.pctChange).append("\n");
+        sb.append("Score: ").append(context.totalScore == null ? "" : context.totalScore).append("\n");
+        sb.append("Gate reason: ").append(safe(context.gateReason)).append("\n");
+        sb.append("News titles:\n");
+
         int n = 0;
-        for (NewsItem ni : sc.news) {
-            if (n++ >= 8) break;
-            sb.append("- ").append(ni.title).append("\n");
+        for (NewsItem ni : context.news) {
+            if (ni == null || n++ >= 8) {
+                continue;
+            }
+            String title = safe(ni.title);
+            if (title.isEmpty()) {
+                continue;
+            }
+            sb.append("- ").append(title).append("\n");
         }
-        sb.append("\n请使用简体中文，不要使用 Markdown，只输出纯文本，分短段落输出。");
-        sb.append("公司名请使用本地市场常用名称：日股用日文，美股用英文，中国股票用中文。");
+
+        sb.append("\nOutput requirements:\n");
+        sb.append("1) Output in Simplified Chinese.\n");
+        sb.append("2) Plain text only, no Markdown.\n");
+        sb.append("3) Use short paragraphs.\n");
+        sb.append("4) Use common local company naming conventions.\n");
+        sb.append("5) Only use facts from the given input; do not invent details.\n");
+        sb.append("6) If information is missing, omit it; do not output words like unknown/unkown/N/A.\n");
         return sb.toString();
+    }
+
+    private static String safe(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("\r", " ")
+                .replace("\n", " ")
+                .trim();
     }
 }

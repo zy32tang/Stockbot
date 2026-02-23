@@ -41,18 +41,6 @@ vector.memory.news.top_k=12
 vector.memory.signal.top_k=10
 vector.memory.signal.max_cases=20
 
-polymarket.enabled=true
-polymarket.baseUrl=https://gamma-api.polymarket.com
-polymarket.impact.mode=vector
-polymarket.vector.top_k=5
-polymarket.vector.min_similarity=0.35
-polymarket.refresh.max_markets=5000
-polymarket.refresh.ttl_hours=12
-polymarket.weights.sim=0.55
-polymarket.weights.recency=0.20
-polymarket.weights.liquidity=0.15
-polymarket.weights.confidence=0.10
-
 ticker.name.cache.ttl_hours=168
 
 mail.dry_run=false

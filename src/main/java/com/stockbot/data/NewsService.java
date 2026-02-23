@@ -56,6 +56,13 @@ public class NewsService {
     private final int maxItems;
     private final List<String> sources;
     private final int queryVariants;
+    private final QueryExpansionProvider queryExpansionProvider;
+    private final int queryExpandMaxExtra;
+
+    @FunctionalInterface
+    public interface QueryExpansionProvider {
+        List<String> expand(String ticker, List<String> baseQueries, int maxExtraQueries);
+    }
 
 /**
  * 方法说明：NewsService，负责初始化对象并装配依赖参数。
@@ -63,7 +70,16 @@ public class NewsService {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public NewsService(HttpClientEx http, String lang, String region, int maxItems) {
-        this(http, lang, region, maxItems, "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews,investing,ft,guardian,seekingalpha", 4);
+        this(
+                http,
+                lang,
+                region,
+                maxItems,
+                "google,bing,yahoo,cnbc,marketwatch,wsj,nytimes,yahoonews,investing,ft,guardian,seekingalpha",
+                4,
+                null,
+                0
+        );
     }
 
 /**
@@ -72,12 +88,27 @@ public class NewsService {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public NewsService(HttpClientEx http, String lang, String region, int maxItems, String sourcesCsv, int queryVariants) {
+        this(http, lang, region, maxItems, sourcesCsv, queryVariants, null, 0);
+    }
+
+    public NewsService(
+            HttpClientEx http,
+            String lang,
+            String region,
+            int maxItems,
+            String sourcesCsv,
+            int queryVariants,
+            QueryExpansionProvider queryExpansionProvider,
+            int queryExpandMaxExtra
+    ) {
         this.http = http;
         this.lang = lang;
         this.region = region;
         this.maxItems = maxItems;
         this.sources = parseSources(sourcesCsv);
         this.queryVariants = Math.max(1, queryVariants);
+        this.queryExpansionProvider = queryExpansionProvider;
+        this.queryExpandMaxExtra = Math.max(0, queryExpandMaxExtra);
     }
 
 /**
@@ -99,6 +130,9 @@ public class NewsService {
     public List<NewsItem> fetchNews(String ticker, List<String> queries) {
         try {
             List<String> qlist = normalizeQueries(ticker, queries);
+            List<String> originalQueries = new ArrayList<>(qlist);
+            qlist = expandQueries(ticker, qlist);
+            logQueryExpansion(ticker, originalQueries, qlist);
             Set<String> tokens = relevanceTokens(ticker, qlist);
             Map<String, NewsItem> merged = new LinkedHashMap<>();
 
@@ -159,6 +193,65 @@ public class NewsService {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    private List<String> expandQueries(String ticker, List<String> baseQueries) {
+        if (baseQueries == null || baseQueries.isEmpty()) {
+            return List.of();
+        }
+        if (queryExpansionProvider == null || queryExpandMaxExtra <= 0) {
+            return baseQueries;
+        }
+        try {
+            List<String> expanded = queryExpansionProvider.expand(ticker, baseQueries, queryExpandMaxExtra);
+            if (expanded == null || expanded.isEmpty()) {
+                return baseQueries;
+            }
+
+            LinkedHashSet<String> ordered = new LinkedHashSet<>();
+            for (String q : expanded) {
+                String normalized = normalizeQuery(q);
+                if (!normalized.isEmpty()) {
+                    ordered.add(normalized);
+                }
+            }
+            for (String q : baseQueries) {
+                String normalized = normalizeQuery(q);
+                if (!normalized.isEmpty()) {
+                    ordered.add(normalized);
+                }
+            }
+
+            int maxQueries = Math.max(1, queryVariants + queryExpandMaxExtra);
+            List<String> out = new ArrayList<>();
+            for (String q : ordered) {
+                out.add(q);
+                if (out.size() >= maxQueries) {
+                    break;
+                }
+            }
+            return out.isEmpty() ? baseQueries : out;
+        } catch (Exception ignored) {
+            return baseQueries;
+        }
+    }
+
+    private void logQueryExpansion(String ticker, List<String> originalQueries, List<String> expandedQueries) {
+        if (queryExpansionProvider == null || queryExpandMaxExtra <= 0) {
+            return;
+        }
+        String base = formatQueryList(originalQueries);
+        String expanded = formatQueryList(expandedQueries);
+        boolean changed = !base.equals(expanded);
+        System.out.println(String.format(
+                Locale.US,
+                "[NEWS_QUERY] ticker=%s source=%s changed=%s base=%s expanded=%s",
+                safeLogToken(ticker),
+                sourceLabel(),
+                changed,
+                base,
+                expanded
+        ));
     }
 
 /**
@@ -519,5 +612,42 @@ public class NewsService {
     private static String normalizeText(String text) {
         if (text == null) return "";
         return text.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+        return query.trim().replaceAll("\\s+", " ");
+    }
+
+    private static String formatQueryList(List<String> queries) {
+        if (queries == null || queries.isEmpty()) {
+            return "[]";
+        }
+        int maxItems = 16;
+        List<String> parts = new ArrayList<>();
+        for (String query : queries) {
+            if (parts.size() >= maxItems) {
+                break;
+            }
+            String normalized = normalizeQuery(query);
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            if (normalized.length() > 100) {
+                normalized = normalized.substring(0, 97) + "...";
+            }
+            parts.add(normalized);
+        }
+        if (parts.isEmpty()) {
+            return "[]";
+        }
+        return "[" + String.join(" || ", parts) + "]";
+    }
+
+    private static String safeLogToken(String token) {
+        String normalized = normalizeQuery(token);
+        return normalized.isEmpty() ? "-" : normalized;
     }
 }

@@ -12,6 +12,7 @@ public final class RiskDecision {
     public final boolean passed;
     public final double penalty;
     public final List<String> flags;
+    public final List<String> reasons;
 
 /**
  * 方法说明：RiskDecision，负责初始化对象并装配依赖参数。
@@ -19,8 +20,13 @@ public final class RiskDecision {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public RiskDecision(boolean passed, double penalty, List<String> flags) {
+        this(passed, penalty, flags, List.of());
+    }
+
+    public RiskDecision(boolean passed, double penalty, List<String> flags, List<String> reasons) {
         this.passed = passed;
         this.penalty = penalty;
         this.flags = flags == null ? List.of() : Collections.unmodifiableList(flags);
+        this.reasons = reasons == null ? List.of() : Collections.unmodifiableList(reasons);
     }
 }

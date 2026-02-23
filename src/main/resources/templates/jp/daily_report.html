@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <title th:text="${view.pageTitle}">StockBot JP Daily Report</title>
+  <style>
+    body{margin:0;background:#eef4f8;color:#12263a;font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;}
+    .wrap{max-width:1120px;margin:20px auto;background:#fff;border:1px solid #d7e2eb;border-radius:14px;padding:18px 20px 24px;}
+    h1{margin:0 0 10px;font-size:26px;}h2{margin:18px 0 10px;font-size:20px;}h3{margin:8px 0;font-size:16px;}
+    .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}.tile{border:1px solid #dbe6ef;border-radius:10px;background:#fbfdff;padding:10px;}
+    .k{font-size:12px;color:#4b5d73;margin-bottom:4px;}.v{font-size:17px;font-weight:700;}.small{font-size:12px;color:#5b6c80;line-height:1.6;}
+    .chip{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;}
+    .good{background:#dcfce7;color:#166534;}.warn{background:#fef3c7;color:#92400e;}.bad{background:#fee2e2;color:#991b1b;}.info{background:#dbeafe;color:#1d4ed8;}.gray{background:#e5e7eb;color:#374151;}
+    table{width:100%;border-collapse:collapse;font-size:13px;}th,td{border:1px solid #d9e4ee;padding:8px;text-align:left;vertical-align:top;}th{background:#f3f7fb;font-weight:700;}
+    .card{border:1px solid #dbe6ef;border-radius:12px;background:#fcfeff;padding:12px;margin-top:10px;}.warnbox{border:1px solid #f3d7a1;background:#fff7ea;color:#8b5e00;border-radius:10px;padding:10px;margin-top:8px;}
+    .dangerbox{border:1px solid #fecaca;background:#fff1f2;color:#991b1b;border-radius:10px;padding:10px;margin-top:8px;}
+    .suspect{background:#fff8f8;} details{margin-top:6px;} summary{cursor:pointer;}
+    .bul{margin:6px 0 0 16px;padding:0;} .bul li{margin:3px 0;}.disclaimer{font-size:12px;line-height:1.7;color:#5b6c80;border-top:1px solid #e1eaf2;margin-top:14px;padding-top:10px;}
+    @media (max-width:720px){.wrap{margin:8px;border-radius:8px;padding:12px;}h1{font-size:20px;}th,td{font-size:12px;padding:6px;}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 th:text="${view.reportTitle}">StockBot 决策辅助报告</h1>
+
+    <h2>A. 顶部 Header</h2>
+    <div class="grid">
+      <div class="tile" th:each="tile : ${view.topTiles}">
+        <div class="k" th:text="${tile.key}">key</div>
+        <div class="v" th:text="${tile.value}">value</div>
+      </div>
+    </div>
+    <div class="dangerbox" th:if="${view.hasSuspectPrice}">Possible price mapping issue: same lastClose repeated across tickers.</div>
+    <div class="small" th:if="${view.hasSuspectPrice}">suspect tickers: <span th:text="${view.suspectTickers}">-</span></div>
+    <div class="small" style="margin-top:8px;">
+      失败原因统计：
+      <span th:each="stat,iter : ${view.failureStats}">
+        <span th:text="${stat}">-</span><span th:if="${!iter.last}"> | </span>
+      </span>
+    </div>
+    <div class="small">coverage_source=<span th:text="${view.coverageSource}">UNKNOWN</span></div>
+    <div class="small" th:if="${view.partialMessage != null and !#strings.isEmpty(view.partialMessage)}" th:text="${view.partialMessage}"></div>
+
+    <h2>B. 系统状态说明</h2>
+    <div class="small">
+      <div th:each="line : ${view.systemStatusLines}" th:text="${line}"></div>
+    </div>
+
+    <h2>C0. 小白模式：今日决策卡（只看这一段）</h2>
+    <div class="card">
+      <div class="small" th:each="line : ${view.noviceLines}" th:text="${line}"></div>
+    </div>
+
+    <h2>C. 今日行动建议（总览）</h2>
+    <div class="card">
+      <div>
+        建议等级：
+        <span class="chip" th:classappend="${view.actionAdvice.css}" th:text="${view.actionAdvice.level}">PASS</span>
+      </div>
+      <div class="small" style="margin-top:6px;" th:text="${view.actionAdvice.reason}"></div>
+      <div class="small" style="margin-top:6px;">
+        新手仓位上限：单笔 ≤ <span th:text="${view.actionAdvice.singleMaxPct}">5.0</span>%，总仓 ≤ <span th:text="${view.actionAdvice.totalMaxPct}">50.0</span>%
+      </div>
+    </div>
+
+    <h2>D. 自选股动作表</h2>
+    <table>
+      <tr>
+        <th>代码+名称</th>
+        <th>最新价</th>
+        <th>我的动作</th>
+        <th>理由（最多2条）</th>
+        <th>入场区间</th>
+        <th>止损位</th>
+        <th>目标位</th>
+      </tr>
+      <tr th:if="${#lists.isEmpty(view.watchRows)}">
+        <td colspan="7">无自选股数据</td>
+      </tr>
+      <tr th:each="row : ${view.watchRows}" th:classappend="${row.priceSuspect} ? 'suspect' : ''">
+        <td>
+          <span th:text="${row.name}">code</span>
+          <details>
+            <summary class="small">trace</summary>
+            <div class="small" th:text="${row.traceSummary}"></div>
+          </details>
+        </td>
+        <td th:text="${row.lastClose}">-</td>
+        <td><span class="chip" th:classappend="${row.actionCss}" th:text="${row.action}">WAIT</span></td>
+        <td>
+          <div class="small" th:each="reason : ${row.reasons}" th:text="${' - ' + reason}"></div>
+        </td>
+        <td th:text="${row.entryRange}">-</td>
+        <td th:text="${row.stopLoss}">-</td>
+        <td th:text="${row.takeProfit}">-</td>
+      </tr>
+    </table>
+
+    <div class="card" th:if="${!#lists.isEmpty(view.watchAiItems)}">
+      <h3 style="margin-top:0;">AI 新闻摘要（纯文本）</h3>
+      <div style="margin-bottom:8px;" th:each="item : ${view.watchAiItems}">
+        <b th:text="${item.name}">ticker</b>
+        <div class="small" th:each="line : ${item.lines}" th:text="${line}"></div>
+        <details th:if="${item.newsDigests != null and !#lists.isEmpty(item.newsDigests)}">
+          <summary class="small">相关新闻</summary>
+          <div class="small" th:each="digest : ${item.newsDigests}" th:text="${' - ' + digest}"></div>
+        </details>
+      </div>
+    </div>
+
+    <h2>E. 今日 Top5</h2>
+    <div class="card">
+      <h3 style="margin-top:0;">Top5 漏斗统计</h3>
+      <div class="small">
+        <span th:each="stat,iter : ${view.topCards.funnelStats}">
+          <span th:text="${stat}"></span><span th:if="${!iter.last}"> | </span>
+        </span>
+      </div>
+      <div class="small" th:if="${view.topCards.mainReasons != null and !#lists.isEmpty(view.topCards.mainReasons)}">
+        最主要淘汰原因：
+        <span th:each="reason,iter : ${view.topCards.mainReasons}">
+          <span th:text="${reason}"></span><span th:if="${!iter.last}">；</span>
+        </span>
+      </div>
+      <div class="small" th:if="${view.topCards.skipReason != null and !#strings.isEmpty(view.topCards.skipReason)}" th:text="${view.topCards.skipReason}"></div>
+      <details th:if="${view.topCards.gateLines != null and !#lists.isEmpty(view.topCards.gateLines)}">
+        <summary class="small">Top5 gate reason tree</summary>
+        <div class="small">
+          <div th:each="line : ${view.topCards.gateLines}" th:text="${line}"></div>
+        </div>
+      </details>
+    </div>
+    <div class="warnbox" th:if="${view.topCards.noviceWarn}">Top5 多为高波动/下跌趋势反弹票，新手默认不参与（仅观察）</div>
+    <div class="warnbox" th:if="${view.topCards.emptyMessage != null and !#strings.isEmpty(view.topCards.emptyMessage)}" th:text="${view.topCards.emptyMessage}"></div>
+    <div class="card" th:each="card : ${view.topCards.cards}">
+      <div><b th:text="${'#' + card.rank + ' ' + card.name}">#1</b></div>
+      <div class="small">
+        最新价 <span th:text="${card.latestPrice}">0.00</span>
+        | 评分 <span class="chip info" th:text="${card.score}">0.0</span>
+        | 风险 <span class="chip" th:classappend="${card.riskCss}" th:text="${card.riskText}">LOW</span>
+      </div>
+      <div class="small" th:text="${card.planLine}"></div>
+      <details>
+        <summary class="small">signals</summary>
+        <ul class="bul">
+          <li th:each="reason : ${card.reasons}" th:text="${reason}"></li>
+        </ul>
+      </details>
+    </div>
+    <div class="warnbox" th:if="${view.topCards.excludedDerivatives != null and !#strings.isEmpty(view.topCards.excludedDerivatives)}">
+      <b>衍生/对冲类（仅研究用）</b><br>
+      已从 Top 候选剔除：<span th:text="${view.topCards.excludedDerivatives}"></span>.
+    </div>
+
+    <h2>F. Polymarket Signals</h2>
+    <div class="warnbox" th:if="${view.polymarket.disabledMessage != null and !#strings.isEmpty(view.polymarket.disabledMessage)}" th:text="${view.polymarket.disabledMessage}"></div>
+    <div class="small" th:if="${view.polymarket.statusMessage != null and !#strings.isEmpty(view.polymarket.statusMessage)}">status: <span th:text="${view.polymarket.statusMessage}"></span></div>
+    <div class="card" th:each="signal : ${view.polymarket.signals}">
+      <div class="small">
+        <b th:text="${'Topic: ' + signal.topic + ' | Prob: ' + signal.probPct + '% | 24h: ' + signal.change24hPct + '% | OI: ' + signal.oiDirection}"></b>
+      </div>
+      <div class="small">Likely industries: <span th:text="${signal.industries}"></span></div>
+      <div class="small">
+        Watchlist impact:
+        <span th:each="impact,iter : ${signal.watchImpacts}">
+          <span th:text="${impact}"></span><span th:if="${!iter.last}"> / </span>
+        </span>
+      </div>
+    </div>
+
+    <h2>G. 风险提示与免责声明</h2>
+    <div class="disclaimer">
+      <div th:each="line : ${view.disclaimerLines}" th:text="${line}"></div>
+    </div>
+
+    <details>
+      <summary class="small">高级：参数总览（点开）</summary>
+      <h2>H. 参数总览（本次运行）</h2>
+      <div class="small" th:if="${!view.hasConfigSnapshot}">未采集到参数快照。</div>
+      <th:block th:if="${view.hasConfigSnapshot}">
+        <div class="small">以下参数来自本次实际运行配置，来源字段含义：default/resource/override。</div>
+        <table>
+          <tr><th>参数</th><th>当前值</th><th>来源</th><th>说明</th></tr>
+          <tr th:each="row : ${view.configRows}">
+            <td th:text="${row.key}"></td>
+            <td th:text="${row.value}"></td>
+            <td th:text="${row.source}"></td>
+            <td th:text="${row.desc}"></td>
+          </tr>
+        </table>
+      </th:block>
+    </details>
+
+    <details>
+      <summary class="small">高级：Diagnostics（点开）</summary>
+      <th:block th:if="${view.diagnostics.enabled}">
+        <h2>I. Diagnostics</h2>
+        <details>
+          <summary>diagnostics</summary>
+          <div class="small">
+            <div th:text="${'run_id=' + view.diagnostics.runId + ' | run_mode=' + view.diagnostics.runMode}"></div>
+            <div th:text="${'coverage_scope=' + view.diagnostics.coverageScope + ' | coverage_source=' + view.diagnostics.coverageSource + ' | coverage_owner=' + view.diagnostics.coverageOwner}"></div>
+
+            <div th:if="${view.diagnostics.coverageMetrics != null and !#lists.isEmpty(view.diagnostics.coverageMetrics)}">
+              <b>coverage_metrics</b>
+              <div th:each="line : ${view.diagnostics.coverageMetrics}" th:text="${line}"></div>
+            </div>
+            <div th:if="${view.diagnostics.dataSources != null and !#lists.isEmpty(view.diagnostics.dataSources)}">
+              <b>data_sources</b>
+              <div th:each="line : ${view.diagnostics.dataSources}" th:text="${line}"></div>
+            </div>
+            <div th:if="${view.diagnostics.featureStatuses != null and !#lists.isEmpty(view.diagnostics.featureStatuses)}">
+              <b>feature_status</b>
+              <div th:each="line : ${view.diagnostics.featureStatuses}" th:text="${line}"></div>
+            </div>
+            <div th:if="${view.diagnostics.configSnapshot != null and !#lists.isEmpty(view.diagnostics.configSnapshot)}">
+              <b>config_snapshot</b>
+              <div th:each="line : ${view.diagnostics.configSnapshot}" th:text="${line}"></div>
+            </div>
+            <div th:if="${view.diagnostics.notes != null and !#lists.isEmpty(view.diagnostics.notes)}">
+              <b>notes</b>
+              <div th:each="line : ${view.diagnostics.notes}" th:text="${line}"></div>
+            </div>
+          </div>
+        </details>
+      </th:block>
+    </details>
+  </div>
+</body>
+</html>

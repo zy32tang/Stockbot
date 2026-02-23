@@ -9,8 +9,10 @@ import java.util.Map;
  * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
  */
 public final class ScoreResult {
+    public final boolean passed;
     public final double score;
     public final Map<String, Double> breakdown;
+    public final java.util.List<String> reasons;
 
 /**
  * 方法说明：ScoreResult，负责初始化对象并装配依赖参数。
@@ -18,7 +20,13 @@ public final class ScoreResult {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public ScoreResult(double score, Map<String, Double> breakdown) {
+        this(true, score, breakdown, java.util.List.of());
+    }
+
+    public ScoreResult(boolean passed, double score, Map<String, Double> breakdown, java.util.List<String> reasons) {
+        this.passed = passed;
         this.score = score;
         this.breakdown = breakdown == null ? Map.of() : Collections.unmodifiableMap(breakdown);
+        this.reasons = reasons == null ? java.util.List.of() : Collections.unmodifiableList(reasons);
     }
 }

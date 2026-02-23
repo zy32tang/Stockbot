@@ -1,5 +1,8 @@
 package com.stockbot.utils;
 
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+
 import java.util.regex.Pattern;
 
 /**
@@ -12,6 +15,7 @@ public class TextFormatter {
     private static final Pattern MD_STRONG_MARKS = Pattern.compile("(\\*\\*|__)");
     private static final Pattern MULTI_BLANK = Pattern.compile("\n{3,}");
     private static final Pattern LINEBREAK_IN_PARA = Pattern.compile("(?<!\n)\n(?!\n)");
+    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}&&[^\n\t]]");
 
     // 规则：去掉标记语法符号，保留段落分隔，但将段内换行合并为空格
     public static String cleanForEmail(String s) {
@@ -27,5 +31,20 @@ public class TextFormatter {
         // 去除行尾空白
         t = t.replaceAll("[ \t]+\n", "\n").trim();
         return t;
+    }
+
+    public static String toPlainText(String s) {
+        if (s == null) {
+            return "";
+        }
+        String t = s.replace("\r\n", "\n").replace("\r", "\n").replace("\\n", "\n");
+        Document doc = Jsoup.parse(t);
+        doc.outputSettings().prettyPrint(false);
+        doc.select("br").append("\\n");
+        doc.select("p,div,li,ul,ol,h1,h2,h3,h4,h5,h6").prepend("\\n");
+        t = doc.text().replace("\\n", "\n");
+        t = cleanForEmail(t);
+        t = CONTROL_CHARS.matcher(t).replaceAll("");
+        return t.trim();
     }
 }

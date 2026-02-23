@@ -1,4 +1,4 @@
-﻿# StockBot 业务逻辑摘要（当前代码快照）
+# StockBot 业务逻辑摘要（当前代码快照）
 
 > 更新时间：2026-02-22  
 > 代码范围：`src/main/java/com/stockbot/app/StockBotApplication.java` + `com.stockbot.jp.*`（watchlist 解释链仍调用 `com.stockbot.*` 旧模块）
@@ -321,40 +321,6 @@ AI 输出只用于解释文案，不参与技术分数。
 - 打 `WARN` 日志
 - 相关 watch 行标记 `priceSuspect=true`
 
-## 10. Polymarket 信号链
-
-### 10.1 总开关与模式
-
-- `polymarket.enabled=false` -> 返回 disabled
-- `polymarket.impact.mode`：
-  - `rule` -> `PolymarketSignalProviderRule`
-  - 其他 -> `PolymarketSignalProviderVector`
-
-### 10.2 PolymarketClient
-
-- 请求 `GET {baseUrl}/markets?active=true&closed=false&limit=...`
-- 支持 `polymarket.apiKey` header
-- 内存缓存 TTL：`polymarket.refresh.ttl_hours`
-- 最多保留 `polymarket.refresh.max_markets`
-
-### 10.3 rule provider（关键词）
-
-- 关键词重叠 + 流动性打分
-- `topK` 来自 `polymarket.vector.top_k`（fallback `polymarket.top_n`）
-- 只输出分数 > 0 且能映射 watchlist impact 的市场
-
-### 10.4 vector provider（当前默认）
-
-优先使用持久化 docs 检索：
-
-1. 将市场 upsert 为 `docs`（`doc_type=POLYMARKET_MARKET`）
-2. 对每个 watch item 做向量检索
-3. 计算综合分：`wSim*similarity + wRecency + wLiquidity + wConfidence`
-4. similarity 需 >= `polymarket.vector.min_similarity`
-5. 取 `polymarket.vector.top_k`
-
-异常或 docs backend 不可用时回退内存相似度模式（同一套打分参数）。
-
 ## 11. 报告生成（ReportBuilder）
 
 输出文件：`jp_daily_yyyyMMdd_HHmmss.html`
@@ -370,7 +336,6 @@ AI 输出只用于解释文案，不参与技术分数。
 - novice 决策卡 + 行动建议
 - watchlist 表与 AI 摘要
 - Top 卡片（候选+交易计划）
-- Polymarket
 - 免责声明
 - Config snapshot（折叠）
 - Diagnostics（折叠）
@@ -500,10 +465,6 @@ run 状态：
 - `watchlist.non_jp_handling`（默认在 defaults 为 `PROCESS_SEPARATELY`）
 - `vector.memory.enabled=true`
 - `vector.memory.signal.top_k=10`
-- `polymarket.enabled=true`
-- `polymarket.impact.mode=vector`
-- `polymarket.vector.top_k=5`
-- `polymarket.vector.min_similarity=0.20`
 - `mail.dry_run=false`
 - `mail.fail_fast=false`
 
@@ -515,7 +476,6 @@ run 状态：
 4. `scan.upsert.incremental_overlap_days` 未进入当前 upsert 调用链（实际使用 `scan.upsert.initial_days` / `scan.upsert.incremental_recent_days`）。
 5. `app.top_n_override`、`app.reset_batch` 仅在配置定义，主入口未读取。
 6. `RunDao.findLatestDailyRunWithReport()` 与 `ReportBuilder.buildMailText()` 当前未被入口链路调用。
-7. 部分 polymarket 配置键目前未被业务链使用（如 `polymarket.data_base_url`、`polymarket.keywords`、`polymarket.search_limit`、`polymarket.topic_map_path`、`polymarket.watch_impact_limit`）。
 
 ## 17. Docker 常用命令
 
@@ -536,4 +496,4 @@ PowerShell 常用一行：
 
 ---
 
-如后续改动入口分发、后台扫描调度、Top5 筛选、polymarket provider、邮件发送或 DB schema，建议优先同步本文件第 2/4/10/11/12/13/16 节。
+如后续改动入口分发、后台扫描调度、Top5 筛选、邮件发送或 DB schema，建议优先同步本文件第 2/4/11/12/13/16 节。

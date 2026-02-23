@@ -1,12 +1,11 @@
 package com.stockbot.data;
 
 import com.stockbot.data.http.HttpClientEx;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 模块说明：OllamaClient（class）。
- * 主要职责：承载 data 模块 的关键逻辑，对外提供可复用的调用入口。
- * 使用建议：修改该类型时应同步关注上下游调用，避免影响整体流程稳定性。
+ * Minimal Ollama wrapper used for text generation and embeddings.
  */
 public class OllamaClient {
     private final HttpClientEx http;
@@ -15,11 +14,6 @@ public class OllamaClient {
     private final int timeoutSeconds;
     private final int maxTokens;
 
-/**
- * 方法说明：OllamaClient，负责初始化对象并装配依赖参数。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public OllamaClient(HttpClientEx http, String baseUrl, String model, int timeoutSeconds, int maxTokens) {
         this.http = http;
         this.baseUrl = baseUrl;
@@ -28,16 +22,18 @@ public class OllamaClient {
         this.maxTokens = Math.max(0, maxTokens);
     }
 
-/**
- * 方法说明：summarize，负责执行业务逻辑并产出结果。
- * 处理流程：会结合入参与当前上下文执行业务逻辑，并返回结果或更新内部状态。
- * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
- */
     public String summarize(String prompt) {
+        return summarize("", prompt);
+    }
+
+    public String summarize(String systemPrompt, String prompt) {
         try {
             JSONObject req = new JSONObject();
             req.put("model", model);
-            req.put("prompt", prompt);
+            req.put("prompt", prompt == null ? "" : prompt);
+            if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+                req.put("system", systemPrompt.trim());
+            }
             req.put("stream", false);
             if (maxTokens > 0) {
                 JSONObject options = new JSONObject();
@@ -48,7 +44,82 @@ public class OllamaClient {
             JSONObject o = new JSONObject(resp);
             return o.optString("response", "");
         } catch (Exception e) {
-            return "AI当前不可用：" + e.getMessage();
+            return "AI unavailable: " + e.getMessage();
         }
+    }
+
+    public float[] embed(String text) {
+        return embed(model, text);
+    }
+
+    public float[] embed(String embedModel, String text) {
+        String input = text == null ? "" : text.trim();
+        if (input.isEmpty()) {
+            return new float[0];
+        }
+
+        String modelToUse = embedModel == null || embedModel.trim().isEmpty()
+                ? model
+                : embedModel.trim();
+        if (modelToUse == null || modelToUse.isEmpty()) {
+            return new float[0];
+        }
+
+        JSONObject req = new JSONObject();
+        req.put("model", modelToUse);
+        req.put("prompt", input);
+        try {
+            String resp = http.postJson(baseUrl + "/api/embeddings", req.toString(), timeoutSeconds);
+            float[] vec = parseEmbedding(resp);
+            if (vec.length > 0) {
+                return vec;
+            }
+        } catch (Exception ignored) {
+            // Fall through to /api/embed for newer Ollama versions.
+        }
+
+        JSONObject reqEmbed = new JSONObject();
+        reqEmbed.put("model", modelToUse);
+        reqEmbed.put("input", input);
+        try {
+            String resp = http.postJson(baseUrl + "/api/embed", reqEmbed.toString(), timeoutSeconds);
+            return parseEmbedding(resp);
+        } catch (Exception ignored) {
+            return new float[0];
+        }
+    }
+
+    private float[] parseEmbedding(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return new float[0];
+        }
+
+        JSONObject root;
+        try {
+            root = new JSONObject(raw);
+        } catch (Exception ignored) {
+            return new float[0];
+        }
+
+        JSONArray arr = root.optJSONArray("embedding");
+        if (arr == null) {
+            JSONArray arrs = root.optJSONArray("embeddings");
+            if (arrs != null && arrs.length() > 0) {
+                Object first = arrs.opt(0);
+                if (first instanceof JSONArray) {
+                    arr = (JSONArray) first;
+                }
+            }
+        }
+        if (arr == null || arr.length() == 0) {
+            return new float[0];
+        }
+
+        float[] out = new float[arr.length()];
+        for (int i = 0; i < arr.length(); i++) {
+            double d = arr.optDouble(i, Double.NaN);
+            out[i] = Double.isFinite(d) ? (float) d : 0.0f;
+        }
+        return out;
     }
 }

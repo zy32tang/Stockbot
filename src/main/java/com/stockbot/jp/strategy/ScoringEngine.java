@@ -5,8 +5,10 @@ import com.stockbot.jp.model.IndicatorSnapshot;
 import com.stockbot.jp.model.RiskDecision;
 import com.stockbot.jp.model.ScoreResult;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -67,6 +69,8 @@ public final class ScoringEngine {
                 + rebound * wRebound
                 + volume * wVolume) / wSum;
         double finalScore = clamp(weighted - risk.penalty, 0.0, 100.0);
+        double minScore = config.getDouble("scan.min_score", 55.0);
+        boolean passed = finalScore >= minScore;
 
         Map<String, Double> breakdown = new LinkedHashMap<>();
         breakdown.put("pullback", pullback);
@@ -77,7 +81,34 @@ public final class ScoringEngine {
         breakdown.put("volume", volume);
         breakdown.put("risk_penalty", risk.penalty);
         breakdown.put("final", finalScore);
-        return new ScoreResult(round2(finalScore), breakdown);
+
+        List<String> reasons = new ArrayList<>();
+        if (Double.isFinite(ind.lastClose) && Double.isFinite(ind.sma20) && ind.lastClose < ind.sma20) {
+            reasons.add(String.format(Locale.US, "跌破20日均线支撑(当前价:%.2f, SMA20:%.2f)", ind.lastClose, ind.sma20));
+        }
+        if (pullback < 35.0) {
+            reasons.add(String.format(Locale.US, "回撤位置不理想，估值安全垫不足(回撤评分%.1f)", pullback));
+        }
+        if (rsi < 30.0 || rsi > 70.0) {
+            reasons.add(String.format(Locale.US, "动量状态偏离低吸区间(RSI=%.2f)", ind.rsi14));
+        }
+        if (volume < 35.0) {
+            reasons.add(String.format(Locale.US, "量能支撑不足(量比=%.2f)", ind.volumeRatio20));
+        }
+        if (risk.penalty > 0.0) {
+            reasons.add(String.format(Locale.US, "风控惩罚扣分%.2f分", risk.penalty));
+            if (risk.reasons != null && !risk.reasons.isEmpty()) {
+                reasons.addAll(risk.reasons);
+            }
+        }
+        if (!passed) {
+            reasons.add(String.format(Locale.US, "综合评分低于阈值(%.2f < %.2f)", finalScore, minScore));
+        }
+        if (reasons.isEmpty()) {
+            reasons.add("评分结构健康，暂未出现明显扣分项");
+        }
+
+        return new ScoreResult(passed, round2(finalScore), breakdown, reasons);
     }
 
 /**

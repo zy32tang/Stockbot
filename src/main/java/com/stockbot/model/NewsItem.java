@@ -9,6 +9,7 @@ import java.time.ZonedDateTime;
  */
 public class NewsItem {
     public final String title;
+    public final String description;
     public final String link;
     public final String source;
     public final ZonedDateTime publishedAt;
@@ -19,7 +20,12 @@ public class NewsItem {
  * 维护提示：调整此方法时建议同步检查调用方、异常分支与日志输出。
  */
     public NewsItem(String title, String link, String source, ZonedDateTime publishedAt) {
+        this(title, "", link, source, publishedAt);
+    }
+
+    public NewsItem(String title, String description, String link, String source, ZonedDateTime publishedAt) {
         this.title = title;
+        this.description = description;
         this.link = link;
         this.source = source;
         this.publishedAt = publishedAt;

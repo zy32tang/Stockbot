@@ -3,7 +3,6 @@ package com.stockbot.jp.runner;
 import com.stockbot.app.Prompts;
 import com.stockbot.core.diagnostics.CauseCode;
 import com.stockbot.core.diagnostics.Diagnostics;
-import com.stockbot.core.diagnostics.FeatureResolution;
 import com.stockbot.core.diagnostics.FeatureStatusResolver;
 import com.stockbot.core.diagnostics.Outcome;
 import com.stockbot.data.IndustryService;
@@ -42,8 +41,6 @@ import com.stockbot.jp.model.UniverseRecord;
 import com.stockbot.jp.model.UniverseUpdateResult;
 import com.stockbot.jp.model.WatchlistAnalysis;
 import com.stockbot.jp.output.ReportBuilder;
-import com.stockbot.jp.polymarket.PolymarketSignalReport;
-import com.stockbot.jp.polymarket.PolymarketService;
 import com.stockbot.jp.strategy.CandidateFilter;
 import com.stockbot.jp.strategy.ReasonJsonBuilder;
 import com.stockbot.jp.strategy.RiskFilter;
@@ -111,7 +108,6 @@ public final class DailyRunner {
             "scan.market_reference_top_n",
             "scan.min_score",
             "scan.min_history_bars",
-            "scan.fresh_days",
             "scan.cache.fresh_days",
             "backtest.hold_days",
             "report.top5.skip_on_partial",
@@ -155,8 +151,6 @@ public final class DailyRunner {
             "position.total.maxPct",
             "report.position.max_single_pct",
             "report.position.max_total_pct",
-            "polymarket.enabled",
-            "polymarket.impact.mode",
             "watchlist.path",
             "watchlist.non_jp_handling",
             "watchlist.default_market_for_alpha",
@@ -174,6 +168,11 @@ public final class DailyRunner {
             "news.concurrent",
             "news.query.max_variants",
             "news.query.max_results_per_variant",
+            "news.vector.query_expand.enabled",
+            "news.vector.query_expand.top_k",
+            "news.vector.query_expand.max_extra_queries",
+            "news.vector.query_expand.rounds",
+            "news.vector.query_expand.seed_count",
             "news.source.google_rss",
             "news.source.bing",
             "news.source.yahoo_finance",
@@ -183,14 +182,6 @@ public final class DailyRunner {
             "ai.max_tokens",
             "ai.temperature",
             "vector.memory.signal.max_cases",
-            "polymarket.vector.top_k",
-            "polymarket.vector.min_similarity",
-            "polymarket.refresh.max_markets",
-            "polymarket.refresh.ttl_hours",
-            "polymarket.weights.sim",
-            "polymarket.weights.recency",
-            "polymarket.weights.liquidity",
-            "polymarket.weights.confidence",
             "indicator.core",
             "indicator.allow_partial",
             "mail.dry_run",
@@ -222,7 +213,6 @@ public final class DailyRunner {
     private final com.stockbot.scoring.ScoringEngine legacyScoringEngine;
     private final GatePolicy gatePolicy;
     private final OllamaClient ollamaClient;
-    private final PolymarketService polymarketService;
     private final EventMemoryService eventMemoryService;
     private final TickerResolver tickerResolver;
     private final TickerNameResolver tickerNameResolver;
@@ -236,6 +226,14 @@ public final class DailyRunner {
     private final int fetchRetryBackoffMs;
     private final int maxBars;
     private static final DateTimeFormatter NEWS_TS_FMT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+    private static final Set<String> VECTOR_QUERY_STOPWORDS = Set.of(
+            "stock", "stocks", "market", "news", "company", "companies",
+            "inc", "corp", "co", "ltd", "plc", "the", "and", "or",
+            "for", "to", "of", "in", "on", "at", "jp", "us", "cn", "hk",
+            "earnings", "revenue", "guidance", "outlook", "forecast",
+            "analyst", "rating", "price", "target", "dividend", "buyback",
+            "merger", "acquisition", "partnership", "lawsuit", "regulation"
+    );
 
 public DailyRunner(
             Config config,
@@ -272,6 +270,8 @@ public DailyRunner(
         this.legacyHttp = new HttpClientEx();
         this.marketDataService = new MarketDataService(legacyHttp);
         this.industryService = new IndustryService(legacyHttp);
+        this.eventMemoryService = eventMemoryService;
+        VectorSearchService vectorSearchService = eventMemoryService == null ? null : eventMemoryService.vectorSearchService();
         String newsLang = config.getString("watchlist.news.lang", "ja");
         String newsRegion = config.getString("watchlist.news.region", "JP");
         int newsMaxItems = Math.max(1, config.getInt(
@@ -283,7 +283,28 @@ public DailyRunner(
                 "news.query.max_variants",
                 config.getInt("watchlist.news.query_variants", 4)
         ));
-        this.newsService = new NewsService(legacyHttp, newsLang, newsRegion, newsMaxItems, newsSources, queryVariants);
+        boolean vectorQueryExpandEnabled = config.getBoolean("news.vector.query_expand.enabled", true);
+        int vectorQueryTopK = Math.max(1, config.getInt("news.vector.query_expand.top_k", 8));
+        int vectorQueryMaxExtra = Math.max(0, config.getInt("news.vector.query_expand.max_extra_queries", 2));
+        int vectorQueryRounds = Math.max(1, config.getInt("news.vector.query_expand.rounds", 2));
+        int vectorQuerySeedCount = Math.max(1, config.getInt("news.vector.query_expand.seed_count", 3));
+        NewsService.QueryExpansionProvider queryExpansionProvider = buildNewsQueryExpansionProvider(
+                vectorSearchService,
+                vectorQueryExpandEnabled,
+                vectorQueryTopK,
+                vectorQueryRounds,
+                vectorQuerySeedCount
+        );
+        this.newsService = new NewsService(
+                legacyHttp,
+                newsLang,
+                newsRegion,
+                newsMaxItems,
+                newsSources,
+                queryVariants,
+                queryExpansionProvider,
+                vectorQueryMaxExtra
+        );
         this.factorEngine = new FactorEngine(
                 new com.stockbot.data.FundamentalsService(legacyHttp),
                 industryService,
@@ -302,9 +323,6 @@ public DailyRunner(
                 Math.max(5, config.getInt("ai.timeout_sec", config.getInt("watchlist.ai.timeout_sec", 180))),
                 Math.max(0, config.getInt("ai.max_tokens", config.getInt("watchlist.ai.max_tokens", 80)))
         );
-        this.eventMemoryService = eventMemoryService;
-        VectorSearchService vectorSearchService = eventMemoryService == null ? null : eventMemoryService.vectorSearchService();
-        this.polymarketService = new PolymarketService(config, legacyHttp, ollamaClient, vectorSearchService);
         this.tickerResolver = new TickerResolver(config.getString("watchlist.default_market_for_alpha", "US"));
         this.tickerNameResolver = new TickerNameResolver(config, legacyHttp);
         this.nonJpHandling = parseNonJpHandling(config.getString("watchlist.non_jp_handling", "PROCESS_SEPARATELY"));
@@ -375,7 +393,6 @@ public DailyRunOutcome run(
                             OWNER_FEATURE_RESOLVE
                     )
             );
-            PolymarketResult polymarket = collectPolymarketSignals(watchlistCandidates, diagnostics);
             Path reportPath = reportBuilder.writeDailyReport(
                     reportDir,
                     startedAt,
@@ -393,7 +410,6 @@ public DailyRunOutcome run(
                     scanSummary,
                     scan.partialRun,
                     scan.partialRun ? "PARTIAL" : "SUCCESS",
-                    polymarket.report,
                     diagnostics
             );
 
@@ -580,7 +596,6 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
                             OWNER_FEATURE_RESOLVE
                     )
             );
-            PolymarketResult polymarket = collectPolymarketSignals(watchlistCandidates, diagnostics);
             boolean marketPartial = "PARTIAL".equalsIgnoreCase(safeText(marketRun.status));
             Path reportPath = reportBuilder.writeDailyReport(
                     reportDir,
@@ -599,7 +614,6 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
                     scanSummary,
                     marketPartial,
                     safeText(marketRun.status),
-                    polymarket.report,
                     diagnostics
             );
 
@@ -972,8 +986,11 @@ private WatchlistAnalysis buildSkippedWatchRow(
         JSONObject reasonRoot = new JSONObject();
         reasonRoot.put("filter_passed", false);
         reasonRoot.put("risk_passed", false);
+        reasonRoot.put("score_passed", false);
         reasonRoot.put("filter_reasons", new JSONArray());
         reasonRoot.put("risk_flags", new JSONArray());
+        reasonRoot.put("risk_reasons", new JSONArray());
+        reasonRoot.put("score_reasons", new JSONArray());
         reasonRoot.put("filter_metrics", new JSONObject());
         reasonRoot.put("score_breakdown", new JSONObject());
         reasonRoot.put("watch_item", safeText(watchItem));
@@ -1136,7 +1153,7 @@ private String toJpTicker(String normalizedTicker) {
                 );
             }
 
-            int freshDays = Math.max(0, config.getInt("scan.fresh_days", config.getInt("scan.cache.fresh_days", 2)));
+            int freshDays = autoWatchFreshDays();
             if (!isBarsFreshEnough(bars, freshDays)) {
                 return failedWatchRecord(
                         record,
@@ -1230,7 +1247,11 @@ private String toJpTicker(String normalizedTicker) {
                 outcome = Outcome.failure(
                         CauseCode.RISK_REJECTED,
                         OWNER_RISK,
-                        Map.of("risk_flags", risk.flags, "risk_penalty", risk.penalty)
+                        Map.of(
+                                "risk_flags", risk.flags,
+                                "risk_penalty", risk.penalty,
+                                "risk_reasons", risk.reasons
+                        )
                 );
             } else {
                 outcome = Outcome.success(null, OWNER_WATCH_SCAN);
@@ -1382,8 +1403,11 @@ private WatchlistScanResult failedWatchRecord(
         JSONObject reasonRoot = new JSONObject();
         reasonRoot.put("filter_passed", false);
         reasonRoot.put("risk_passed", false);
+        reasonRoot.put("score_passed", false);
         reasonRoot.put("filter_reasons", new JSONArray());
         reasonRoot.put("risk_flags", new JSONArray());
+        reasonRoot.put("risk_reasons", new JSONArray());
+        reasonRoot.put("score_reasons", new JSONArray());
         reasonRoot.put("filter_metrics", new JSONObject());
         reasonRoot.put("score_breakdown", new JSONObject());
         reasonRoot.put("watch_item", watchItem == null ? "" : watchItem);
@@ -1691,19 +1715,20 @@ private LegacyWatchResult buildLegacyWatchResult(
             sc.pctChange = computePctChange(sc.lastClose, sc.prevClose);
 
             List<String> queries = buildNewsQueries(record, watchItem, yahooTicker);
-            List<NewsItem> news = newsService.fetchNews(yahooTicker, queries);
-            sc.news.addAll(news);
+            List<NewsItem> fetchedNews = newsService.fetchNews(yahooTicker, queries);
+            sc.news.addAll(fetchedNews);
+            boolean hasRelevantNews = !fetchedNews.isEmpty();
 
             factorEngine.computeFactors(sc);
             legacyScoringEngine.score(sc);
             aiTriggered = aiEnabled && (aiAllMode || gatePolicy.shouldRunAi(sc));
             if (aiTriggered) {
                 sc.aiRan = true;
-                String rawSummary = ollamaClient.summarize(Prompts.buildPrompt(sc));
-                sc.aiSummary = TextFormatter.cleanForEmail(rawSummary);
+                String rawSummary = ollamaClient.summarize(Prompts.buildSystemPrompt(), Prompts.buildPrompt(sc));
+                sc.aiSummary = TextFormatter.toPlainText(rawSummary);
             } else {
                 sc.aiRan = false;
-                sc.aiSummary = "";
+                sc.aiSummary = hasRelevantNews ? "" : "莉頑律譌鬮伜ｺｦ逶ｸ蜈ｳ逧・ｸ蠢・渕譛ｬ髱｢譁ｰ髣ｻ";
             }
         } catch (Exception e) {
             String msg = safeText(e.getMessage());
@@ -1801,7 +1826,7 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
 
         List<String> topics = parseTopicCsv(config.getString(
                 "watchlist.news.query_topics",
-                "隴ｬ・ｪ關難ｽ｡,雎趣ｽｺ驍ゅ・隶鯉ｽｭ驍ｵ・ｾ,髫慕洸ﾂ螢ｹ・,陷ｿ邇ｲ・ｳ・ｨ,髫ｪ・ｭ陋ｯ蜻主・髮峨・隰蜈亥｣ｰ,髫穂ｸ槫ｮ・霓､・ｺ隴厄ｽｿ,鬩･螟ｧ闌・guidance,earnings,outlook,supply chain"
+                "髫ｴ・ｬ繝ｻ・ｪ髣憺屮・ｽ・｡,髮手ｶ｣・ｽ・ｺ鬩阪ｅ繝ｻ髫ｶ魃会ｽｽ・ｭ鬩搾ｽｵ繝ｻ・ｾ,鬮ｫ諷墓ｴｸ・つ陞｢・ｹ繝ｻ・ｰ,髯ｷ・ｿ驍・ｽｲ繝ｻ・ｳ繝ｻ・ｨ,鬮ｫ・ｪ繝ｻ・ｭ髯具ｽｯ陷ｻ荳ｻ繝ｻ鬮ｮ蟲ｨ繝ｻ髫ｰ・ｰ陷井ｺ･・｣・ｰ,鬮ｫ遨ゑｽｸ讒ｫ・ｮ繝ｻ髴難ｽ､繝ｻ・ｺ髫ｴ蜴・ｽｽ・ｿ,鬯ｩ・･陞滂ｽｧ髣後・guidance,earnings,outlook,supply chain"
         ));
         String anchor = company.isEmpty() ? (recordName.isEmpty() ? watchToken : recordName) : company;
         if (anchor.isEmpty()) {
@@ -1818,6 +1843,364 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
         }
 
         return new ArrayList<>(queries);
+    }
+
+    private NewsService.QueryExpansionProvider buildNewsQueryExpansionProvider(
+            VectorSearchService vectorSearchService,
+            boolean enabled,
+            int topK,
+            int rounds,
+            int seedCount
+    ) {
+        if (!enabled || vectorSearchService == null) {
+            return null;
+        }
+        final int safeTopK = Math.max(1, topK);
+        final int safeRounds = Math.max(1, rounds);
+        final int safeSeedCount = Math.max(1, seedCount);
+        return (ticker, baseQueries, maxExtraQueries) ->
+                expandNewsQueriesByVector(
+                        vectorSearchService,
+                        ticker,
+                        baseQueries,
+                        safeTopK,
+                        maxExtraQueries,
+                        safeRounds,
+                        safeSeedCount
+                );
+    }
+
+    private List<String> expandNewsQueriesByVector(
+            VectorSearchService vectorSearchService,
+            String ticker,
+            List<String> baseQueries,
+            int topK,
+            int maxExtraQueries,
+            int rounds,
+            int seedCount
+    ) {
+        if (vectorSearchService == null || baseQueries == null || baseQueries.isEmpty()) {
+            return baseQueries == null ? List.of() : baseQueries;
+        }
+
+        LinkedHashSet<String> baseSet = new LinkedHashSet<>();
+        for (String query : baseQueries) {
+            String normalized = normalizeVectorQuery(query);
+            if (!normalized.isEmpty()) {
+                baseSet.add(normalized);
+            }
+        }
+        if (baseSet.isEmpty()) {
+            return List.of();
+        }
+        List<String> normalizedBase = new ArrayList<>(baseSet);
+
+        int extraCap = Math.max(0, maxExtraQueries);
+        if (extraCap <= 0) {
+            return normalizedBase;
+        }
+
+        LinkedHashMap<String, Double> queryScores = new LinkedHashMap<>();
+        for (int i = 0; i < normalizedBase.size(); i++) {
+            queryScores.put(normalizedBase.get(i), 120.0 - (i * 4.0));
+        }
+
+        String tickerFilter = normalizeVectorTickerForFilter(ticker);
+        int safeRounds = Math.max(1, rounds);
+        int safeSeedCount = Math.max(1, seedCount);
+        int addedTotal = 0;
+        List<String> workingQueries = new ArrayList<>(normalizedBase);
+
+        for (int round = 1; round <= safeRounds; round++) {
+            int remainingExtra = extraCap - addedTotal;
+            if (remainingExtra <= 0) {
+                break;
+            }
+
+            List<String> seeds = new ArrayList<>();
+            for (int i = 0; i < workingQueries.size() && seeds.size() < safeSeedCount; i++) {
+                String seed = normalizeVectorQuery(workingQueries.get(i));
+                if (!seed.isEmpty()) {
+                    seeds.add(seed);
+                }
+            }
+            if (seeds.isEmpty()) {
+                break;
+            }
+
+            LinkedHashMap<String, Double> hintScores = new LinkedHashMap<>();
+            for (String seed : seeds) {
+                List<VectorSearchService.DocMatch> matches = searchVectorNews(vectorSearchService, seed, topK, tickerFilter);
+                if (matches.isEmpty() && !tickerFilter.isEmpty()) {
+                    matches = searchVectorNews(vectorSearchService, seed, topK, "");
+                }
+                int rank = 0;
+                for (VectorSearchService.DocMatch match : matches) {
+                    double weight = 1.0 / (1.0 + rank);
+                    collectVectorHints(hintScores, match, weight);
+                    rank++;
+                }
+            }
+
+            if (hintScores.isEmpty()) {
+                System.out.println(String.format(
+                        Locale.US,
+                        "[NEWS_QUERY_ROUND] ticker=%s round=%d seeds=%s hints=0 added=0",
+                        safeText(ticker),
+                        round,
+                        formatVectorQueryList(seeds, 4)
+                ));
+                break;
+            }
+
+            for (String query : new ArrayList<>(queryScores.keySet())) {
+                String normalizedQuery = normalizeVectorText(query);
+                double boost = 0.0;
+                for (Map.Entry<String, Double> entry : hintScores.entrySet()) {
+                    String hint = entry.getKey();
+                    if (hint.isEmpty()) {
+                        continue;
+                    }
+                    if (normalizedQuery.contains(hint) || hint.contains(normalizedQuery)) {
+                        boost += entry.getValue() * 0.35;
+                    }
+                }
+                if (boost > 0.0) {
+                    queryScores.put(query, queryScores.getOrDefault(query, 0.0) + Math.min(18.0, boost));
+                }
+            }
+
+            List<Map.Entry<String, Double>> orderedHints = new ArrayList<>(hintScores.entrySet());
+            orderedHints.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+
+            String anchor = chooseVectorAnchor(ticker, workingQueries);
+            int addedThisRound = 0;
+            for (Map.Entry<String, Double> entry : orderedHints) {
+                if (addedThisRound >= remainingExtra) {
+                    break;
+                }
+                String expanded = composeVectorExpandedQuery(anchor, entry.getKey());
+                if (expanded.isEmpty() || queryScores.containsKey(expanded)) {
+                    continue;
+                }
+                double baseScore = 85.0 + Math.min(25.0, entry.getValue());
+                double roundDecay = Math.max(0.0, (round - 1) * 3.0);
+                queryScores.put(expanded, baseScore - roundDecay);
+                addedThisRound++;
+                addedTotal++;
+            }
+
+            int workingLimit = Math.max(
+                    normalizedBase.size(),
+                    Math.min(queryScores.size(), normalizedBase.size() + addedTotal)
+            );
+            workingQueries = rankVectorQueries(queryScores, workingLimit);
+            System.out.println(String.format(
+                    Locale.US,
+                    "[NEWS_QUERY_ROUND] ticker=%s round=%d seeds=%s hints=%d added=%d total_added=%d",
+                    safeText(ticker),
+                    round,
+                    formatVectorQueryList(seeds, 4),
+                    hintScores.size(),
+                    addedThisRound,
+                    addedTotal
+            ));
+            if (addedThisRound <= 0) {
+                break;
+            }
+        }
+
+        int maxQueries = Math.max(
+                normalizedBase.size(),
+                Math.min(queryScores.size(), normalizedBase.size() + extraCap)
+        );
+        List<String> out = rankVectorQueries(queryScores, maxQueries);
+        return out.isEmpty() ? normalizedBase : out;
+    }
+
+    private List<String> rankVectorQueries(Map<String, Double> queryScores, int maxQueries) {
+        if (queryScores == null || queryScores.isEmpty()) {
+            return List.of();
+        }
+        List<Map.Entry<String, Double>> rankedQueries = new ArrayList<>(queryScores.entrySet());
+        rankedQueries.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+        List<String> out = new ArrayList<>();
+        for (Map.Entry<String, Double> entry : rankedQueries) {
+            String normalized = normalizeVectorQuery(entry.getKey());
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            out.add(normalized);
+            if (out.size() >= Math.max(1, maxQueries)) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    private List<VectorSearchService.DocMatch> searchVectorNews(
+            VectorSearchService vectorSearchService,
+            String seed,
+            int topK,
+            String tickerFilter
+    ) {
+        if (vectorSearchService == null) {
+            return List.of();
+        }
+        String keyword = normalizeVectorQuery(seed);
+        if (keyword.isEmpty()) {
+            return List.of();
+        }
+        try {
+            return vectorSearchService.searchSimilar(
+                    keyword,
+                    Math.max(1, topK),
+                    new VectorSearchService.SearchFilters(
+                            "NEWS",
+                            tickerFilter == null || tickerFilter.isEmpty() ? null : tickerFilter,
+                            null
+                    )
+            );
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private void collectVectorHints(Map<String, Double> hintScores, VectorSearchService.DocMatch match, double weight) {
+        if (match == null || hintScores == null) {
+            return;
+        }
+        double w = Math.max(0.1, weight);
+        addVectorHint(hintScores, match.ticker, 3.0 * w);
+        addVectorHint(hintScores, match.title, 2.4 * w);
+
+        JSONObject payload = safeJsonObject(match.content);
+        addVectorHint(hintScores, payload.optString("ticker", ""), 3.0 * w);
+        addVectorHint(hintScores, payload.optString("industry_en", ""), 2.2 * w);
+        addVectorHint(hintScores, payload.optString("industry_zh", ""), 2.2 * w);
+        addVectorHint(hintScores, payload.optString("summary", ""), 1.6 * w);
+        addVectorHint(hintScores, payload.optString("title", ""), 1.8 * w);
+
+        JSONArray industries = payload.optJSONArray("beneficiary_industries");
+        if (industries != null) {
+            for (int i = 0; i < industries.length(); i++) {
+                addVectorHint(hintScores, industries.optString(i, ""), 1.9 * w);
+            }
+        }
+
+        JSONArray impactTickers = payload.optJSONArray("impact_tickers");
+        if (impactTickers != null) {
+            for (int i = 0; i < impactTickers.length(); i++) {
+                addVectorHint(hintScores, impactTickers.optString(i, ""), 2.6 * w);
+            }
+        }
+    }
+
+    private void addVectorHint(Map<String, Double> hintScores, String raw, double weight) {
+        if (hintScores == null || raw == null || raw.trim().isEmpty() || weight <= 0.0) {
+            return;
+        }
+
+        String[] tokens = raw.split("[^\\p{L}\\p{N}.]+");
+        for (String token : tokens) {
+            String normalized = normalizeVectorText(token);
+            if (normalized.length() < 2 || normalized.length() > 32) {
+                continue;
+            }
+            if (normalized.matches("\\d{1,2}")) {
+                continue;
+            }
+            if (normalized.startsWith("http")) {
+                continue;
+            }
+            if (VECTOR_QUERY_STOPWORDS.contains(normalized)) {
+                continue;
+            }
+            hintScores.put(normalized, hintScores.getOrDefault(normalized, 0.0) + weight);
+        }
+    }
+
+    private String normalizeVectorText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.toLowerCase(Locale.ROOT)
+                .replace('\u3000', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String normalizeVectorQuery(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace('\u3000', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String formatVectorQueryList(List<String> queries, int limit) {
+        if (queries == null || queries.isEmpty()) {
+            return "[]";
+        }
+        List<String> out = new ArrayList<>();
+        int max = Math.max(1, limit);
+        for (String query : queries) {
+            String normalized = normalizeVectorQuery(query);
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            out.add(normalized.length() > 48 ? (normalized.substring(0, 45) + "...") : normalized);
+            if (out.size() >= max) {
+                break;
+            }
+        }
+        if (out.isEmpty()) {
+            return "[]";
+        }
+        return "[" + String.join(" | ", out) + "]";
+    }
+
+    private String normalizeVectorTickerForFilter(String ticker) {
+        String normalized = safeText(ticker).toUpperCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (normalized.endsWith(".JP")) {
+            return normalized.substring(0, normalized.length() - 3) + ".T";
+        }
+        return normalized;
+    }
+
+    private String chooseVectorAnchor(String ticker, List<String> baseQueries) {
+        String t = normalizeVectorQuery(ticker);
+        if (!t.isEmpty()) {
+            return t;
+        }
+        if (baseQueries == null || baseQueries.isEmpty()) {
+            return "";
+        }
+        return normalizeVectorQuery(baseQueries.get(0));
+    }
+
+    private String composeVectorExpandedQuery(String anchor, String hint) {
+        String h = normalizeVectorQuery(hint);
+        if (h.isEmpty()) {
+            return "";
+        }
+        String a = normalizeVectorQuery(anchor);
+        if (a.isEmpty()) {
+            return h;
+        }
+        String aLower = a.toLowerCase(Locale.ROOT);
+        String hLower = h.toLowerCase(Locale.ROOT);
+        if (aLower.contains(hLower)) {
+            return a;
+        }
+        if (hLower.contains(aLower)) {
+            return h;
+        }
+        return (a + " " + h).trim();
     }
 
     private String toYahooTicker(TickerSpec tickerSpec, UniverseRecord record) {
@@ -1927,7 +2310,16 @@ private String buildDisplayName(String code, String localName) {
             return fallback;
         }
         String lower = text.toLowerCase(Locale.ROOT);
-        if ("unknown".equals(lower) || "隴幢ｽｪ驕擾ｽ･".equals(text)) {
+        if ("unknown".equals(lower)
+                || "unkown".equals(lower)
+                || "n/a".equals(lower)
+                || "na".equals(lower)
+                || "none".equals(lower)
+                || "null".equals(lower)
+                || "-".equals(lower)
+                || "--".equals(lower)
+                || lower.startsWith("ai unavailable:")
+                || lower.startsWith("ai skipped:")) {
             return fallback;
         }
         return text;
@@ -2339,27 +2731,6 @@ private void addMarketCoverageDiagnostics(
         }
     }
 
-private PolymarketResult collectPolymarketSignals(List<WatchlistAnalysis> watchRows, Diagnostics diagnostics) {
-        Throwable runtimeError = null;
-        PolymarketSignalReport report;
-        try {
-            report = polymarketService.collectSignals(watchRows);
-        } catch (Exception e) {
-            runtimeError = e;
-            report = PolymarketSignalReport.disabled("runtime_error: " + e.getClass().getSimpleName());
-        }
-        boolean enabledConfig = config.getBoolean("polymarket.enabled", true);
-        FeatureResolution resolution = FeatureStatusResolver.resolveFeatureStatus(
-                "polymarket.enabled",
-                enabledConfig,
-                true,
-                runtimeError,
-                OWNER_FEATURE_RESOLVE
-        );
-        diagnostics.addFeatureStatus("polymarket", resolution);
-        return new PolymarketResult(report, resolution);
-    }
-
 private EventMemoryService.MemoryInsights collectMemoryInsights(
             String watchItem,
             UniverseRecord record,
@@ -2418,14 +2789,23 @@ private EventMemoryService.MemoryInsights collectMemoryInsights(
             if (item == null) {
                 continue;
             }
-            String title = safeText(item.title);
+            String title = normalizeUnknownText(item.title, "");
             if (title.isEmpty()) {
                 continue;
             }
-            String source = safeText(item.source);
+            String source = normalizeUnknownText(item.source, "");
             String ts = item.publishedAt == null ? "" : NEWS_TS_FMT.format(item.publishedAt);
             StringBuilder line = new StringBuilder();
-            line.append(TextFormatter.cleanForEmail(title).replace("\r", " ").replace("\n", " ").trim());
+            String cleanedTitle = TextFormatter.cleanForEmail(title)
+                    .replace("\r", " ")
+                    .replace("\n", " ")
+                    .replaceAll("(?i)\\bunkown\\b", "unknown")
+                    .trim();
+            cleanedTitle = normalizeUnknownText(cleanedTitle, "");
+            if (cleanedTitle.isEmpty()) {
+                continue;
+            }
+            line.append(cleanedTitle);
             if (!source.isEmpty()) {
                 line.append(" | ").append(source);
             }
@@ -2758,7 +3138,6 @@ private TickerScanResult scanTicker(UniverseRecord universe) {
         long started = System.nanoTime();
         try {
             int minHistoryBars = Math.max(120, config.getInt("scan.min_history_bars", 180));
-            int freshDays = Math.max(0, config.getInt("scan.fresh_days", config.getInt("scan.cache.fresh_days", 2)));
             boolean cachePreferEnabled = config.getBoolean("scan.cache.prefer_enabled", true);
             int cacheFreshDays = Math.max(0, config.getInt("scan.cache.fresh_days", 2));
             boolean retryWhenCacheExists = config.getBoolean("scan.network.retry_when_cache_exists", false);
@@ -2918,7 +3297,7 @@ private TickerScanResult evaluateBars(
             );
         }
 
-        int freshDays = Math.max(0, config.getInt("scan.fresh_days", config.getInt("scan.cache.fresh_days", 2)));
+        int freshDays = autoMarketFreshDays();
         if (!isBarsFreshEnough(bars, freshDays)) {
             return TickerScanResult.ok(
                     universe,
@@ -3176,6 +3555,29 @@ private double lastCloseOf(List<BarDaily> bars) {
             }
         }
         return Double.NaN;
+    }
+
+private int autoWatchFreshDays() {
+        return autoFreshDaysFromToday();
+    }
+
+private int autoMarketFreshDays() {
+        return autoFreshDaysFromToday();
+    }
+
+    private int autoFreshDaysFromToday() {
+        ZoneId zone = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
+        DayOfWeek dow = LocalDate.now(zone).getDayOfWeek();
+        if (dow == DayOfWeek.MONDAY) {
+            return 3;
+        }
+        if (dow == DayOfWeek.SUNDAY) {
+            return 2;
+        }
+        if (dow == DayOfWeek.SATURDAY) {
+            return 1;
+        }
+        return 1;
     }
 
 private boolean isBarsFreshEnough(List<BarDaily> bars, int freshDays) {
@@ -3496,16 +3898,6 @@ private String universeSignature(List<UniverseRecord> universe) {
             this.total = Math.max(0, total);
             this.fetchCoverage = Math.max(0, fetchCoverage);
             this.indicatorCoverage = Math.max(0, indicatorCoverage);
-        }
-    }
-
-    private static final class PolymarketResult {
-        final PolymarketSignalReport report;
-        final FeatureResolution resolution;
-
-        private PolymarketResult(PolymarketSignalReport report, FeatureResolution resolution) {
-            this.report = report == null ? PolymarketSignalReport.disabled("runtime_error") : report;
-            this.resolution = resolution;
         }
     }
 
@@ -4008,6 +4400,8 @@ private ScanFailureReason requestReason(String category) {
         }
     }
 }
+
+
 
 
 

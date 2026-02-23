@@ -33,6 +33,7 @@ public class RssParser {
             for (int i = 0; i < items.getLength() && out.size() < maxItems; i++) {
                 Element item = (Element) items.item(i);
                 String title = text(item, "title");
+                String description = text(item, "description");
                 String link = text(item, "link");
                 String pubDate = text(item, "pubDate");
                 ZonedDateTime zdt = null;
@@ -41,6 +42,7 @@ public class RssParser {
                 } catch (Exception ignored) {}
                 String source = sourceText(item, title, link);
                 out.add(new NewsItem(title == null ? "" : title.trim(),
+                        description == null ? "" : description.trim(),
                         link == null ? "" : link.trim(),
                         source,
                         zdt));
