@@ -32,6 +32,11 @@ ai.watchlist.mode=ALL
 ai.timeout_sec=600
 ai.max_tokens=1200
 ai.temperature=0.2
+# watchlist.ai.score_threshold keeps legacy gate semantics (-10..10),
+# while watchlist JP score is mapped by: (jpScore - 50) / 5
+# watchlist.ai.score_threshold=-2.0
+# watchlist.ai.news_min=8
+# watchlist.ai.drop_pct_threshold=-2.0
 
 indicator.core=sma20,sma60,rsi14,atr14
 indicator.allow_partial=true

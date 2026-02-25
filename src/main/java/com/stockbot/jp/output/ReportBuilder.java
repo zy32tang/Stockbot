@@ -3,12 +3,16 @@ package com.stockbot.jp.output;
 import com.stockbot.core.ModuleResult;
 import com.stockbot.core.ModuleStatus;
 import com.stockbot.core.RunTelemetry;
+import com.stockbot.core.diagnostics.Outcome;
 import com.stockbot.core.diagnostics.Diagnostics;
 import com.stockbot.jp.config.Config;
 import com.stockbot.jp.model.ScanFailureReason;
 import com.stockbot.jp.model.ScanResultSummary;
 import com.stockbot.jp.model.ScoredCandidate;
 import com.stockbot.jp.model.WatchlistAnalysis;
+import com.stockbot.jp.plan.TradePlan;
+import com.stockbot.jp.plan.TradePlanBuilder;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
@@ -35,12 +39,14 @@ public final class ReportBuilder {
     private final ThymeleafReportRenderer renderer;
     private final HtmlPostProcessor htmlPostProcessor;
     private final I18n i18n;
+    private final TradePlanBuilder tradePlanBuilder;
 
     public ReportBuilder(Config config) {
         this.config = config;
         this.renderer = new ThymeleafReportRenderer();
         this.htmlPostProcessor = new HtmlPostProcessor();
         this.i18n = new I18n(config);
+        this.tradePlanBuilder = new TradePlanBuilder(config);
     }
 
     public enum RunType {
@@ -241,8 +247,6 @@ public final class ReportBuilder {
             topCards = new ArrayList<>(topCards.subList(0, 5));
         }
         Map<String, ModuleResult> modules = moduleResults == null ? Map.of() : moduleResults;
-        boolean indicatorsOk = isModuleOk(modules, "indicators");
-        String notReadyHint = indicatorsOk ? "-" : "- (\u539F\u56E0\u89C1\u6A21\u5757\u72B6\u6001)";
 
         Map<String, Object> view = new HashMap<>();
         view.put("pageTitle", i18n.t("report.page.title", "StockBot JP Daily Report"));
@@ -292,6 +296,18 @@ public final class ReportBuilder {
                 continue;
             }
             String action = watchAction(row);
+            Outcome<TradePlan> planOutcome = tradePlanBuilder.buildForWatchlist(row);
+            List<String> reasonLines = watchReasons(row, planOutcome);
+            String rowNotReadyHint = row.indicatorReady ? "-" : "- (\u539F\u56E0\u89C1\u6A21\u5757\u72B6\u6001)";
+            String entryRange = rowNotReadyHint;
+            String stopLoss = rowNotReadyHint;
+            String takeProfit = rowNotReadyHint;
+            if (planOutcome.success && planOutcome.value != null && planOutcome.value.valid) {
+                TradePlan plan = planOutcome.value;
+                entryRange = fmt2(plan.entryLow) + " ~ " + fmt2(plan.entryHigh);
+                stopLoss = fmt2(plan.stopLoss);
+                takeProfit = fmt2(plan.takeProfit);
+            }
             watchTable.add(kv(
                     "priceSuspect", row.priceSuspect,
                     "name", blankTo(row.displayName, row.ticker),
@@ -300,10 +316,10 @@ public final class ReportBuilder {
                     "lastClose", fmt2(row.lastClose),
                     "action", watchActionLabel(action),
                     "actionCss", watchActionCss(action),
-                    "reasons", List.of(blankTo(row.gateReason, i18n.t("report.common.na", "N/A"))),
-                    "entryRange", notReadyHint,
-                    "stopLoss", notReadyHint,
-                    "takeProfit", notReadyHint
+                    "reasons", reasonLines,
+                    "entryRange", entryRange,
+                    "stopLoss", stopLoss,
+                    "takeProfit", takeProfit
             ));
             aiItems.add(kv(
                     "name", blankTo(row.displayName, row.ticker),
@@ -394,20 +410,12 @@ public final class ReportBuilder {
         return rows;
     }
 
-    private boolean isModuleOk(Map<String, ModuleResult> moduleResults, String key) {
-        if (moduleResults == null || key == null) {
-            return false;
-        }
-        ModuleResult result = moduleResults.get(key);
-        return result != null && result.status() == ModuleStatus.OK;
-    }
-
     private List<WatchlistAnalysis> sortWatch(List<WatchlistAnalysis> rows) {
         List<WatchlistAnalysis> out = new ArrayList<>();
         if (rows != null) {
             out.addAll(rows);
         }
-        out.sort(Comparator.comparingDouble((WatchlistAnalysis r) -> r == null ? Double.NEGATIVE_INFINITY : r.totalScore).reversed());
+        out.sort(Comparator.comparingDouble((WatchlistAnalysis r) -> r == null ? Double.NEGATIVE_INFINITY : r.technicalScore).reversed());
         return out;
     }
 
@@ -480,6 +488,100 @@ public final class ReportBuilder {
             }
         }
         return out.isEmpty() ? List.of(text.trim()) : out;
+    }
+
+    private List<String> watchReasons(WatchlistAnalysis row, Outcome<TradePlan> planOutcome) {
+        List<String> reasons = new ArrayList<>();
+        JSONObject root = safeJsonObject(row == null ? "" : row.technicalReasonsJson);
+        appendReasonsFromJsonArray(reasons, root.optJSONArray("filter_reasons"));
+        appendReasonsFromJsonArray(reasons, root.optJSONArray("risk_reasons"));
+        appendReasonsFromJsonArray(reasons, root.optJSONArray("score_reasons"));
+
+        String causeCode = blankTo(root.optString("cause_code", ""), "");
+        if (!causeCode.isEmpty() && !"NONE".equalsIgnoreCase(causeCode)) {
+            appendReason(reasons, "cause_code=" + causeCode);
+        }
+
+        JSONObject details = root.optJSONObject("details");
+        if (details != null) {
+            appendReason(reasons, details.optString("user_message", ""));
+            String detailReason = blankTo(details.optString("reason", ""), "");
+            if (!detailReason.isEmpty()) {
+                appendReason(reasons, "reason=" + detailReason);
+            }
+        }
+
+        if (reasons.isEmpty()) {
+            appendReason(reasons, row == null ? "" : row.gateReason);
+            appendReason(reasons, row == null ? "" : row.error);
+        }
+
+        if (planOutcome != null && !planOutcome.success) {
+            Object reason = planOutcome.details == null ? null : planOutcome.details.get("reason");
+            String reasonText = reason == null ? "" : String.valueOf(reason).trim();
+            if (!reasonText.isEmpty()) {
+                appendReason(reasons, "plan=" + reasonText);
+            }
+        }
+
+        List<String> out = new ArrayList<>();
+        for (String reason : reasons) {
+            if (reason == null) {
+                continue;
+            }
+            String trimmed = reason.trim();
+            if (trimmed.isEmpty() || isPlaceholderReason(trimmed) || out.contains(trimmed)) {
+                continue;
+            }
+            out.add(trimmed);
+            if (out.size() >= 6) {
+                break;
+            }
+        }
+        if (out.isEmpty()) {
+            return List.of(i18n.t("report.common.na", "N/A"));
+        }
+        return out;
+    }
+
+    private void appendReasonsFromJsonArray(List<String> out, JSONArray array) {
+        if (array == null || out == null) {
+            return;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            appendReason(out, array.optString(i, ""));
+        }
+    }
+
+    private void appendReason(List<String> out, String reason) {
+        if (out == null || reason == null) {
+            return;
+        }
+        String text = reason.trim();
+        if (!text.isEmpty()) {
+            out.add(text);
+        }
+    }
+
+    private JSONObject safeJsonObject(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return new JSONObject();
+        }
+        try {
+            return new JSONObject(raw);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private boolean isPlaceholderReason(String value) {
+        String text = blankTo(value, "").trim().toLowerCase(Locale.ROOT);
+        return text.isEmpty()
+                || "-".equals(text)
+                || "na".equals(text)
+                || "n/a".equals(text)
+                || "none".equals(text)
+                || "\u65e0".equals(text);
     }
 
     private String fmt1(double value) {

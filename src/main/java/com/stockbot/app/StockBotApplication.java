@@ -157,11 +157,6 @@ public final class StockBotApplication implements ApplicationRunner {
             return 2;
         }
 
-        if (cmd.hasOption("help")) {
-            new HelpFormatter().printHelp("stockbot", options);
-            return 0;
-        }
-
         try {
             installLogRoutingIfNeeded(config);
             String mode = resolveMode(config);
@@ -386,23 +381,6 @@ private int runOnce(
             String trigger
     ) throws Exception {
         if (mode.equals("DAILY")) {
-            if (cmd.hasOption("reset-batch")) {
-                resetBatchCheckpointOnly(config, metadataDao);
-                return 0;
-            }
-            if (cmd.hasOption("test")) {
-                return sendTestDailyReportEmail(
-                        config,
-                        universeDao,
-                        metadataDao,
-                        barDailyDao,
-                        runDao,
-                        scanResultDao,
-                        true,
-                        RUN_MODE_ONCE,
-                        trigger
-                );
-            }
             ZoneId zoneId = ZoneId.of(config.getString("schedule.zone", "Asia/Tokyo"));
             return runScheduledMergeReport(
                     cmd,
@@ -719,25 +697,14 @@ private int sendTestDailyReportEmail(
         settings.enabled = true;
 
         ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
-        boolean noviceMode = cmd != null && cmd.hasOption("novice");
         String rawHtml = Files.readString(outcome.reportPath, StandardCharsets.UTF_8);
-        List<Path> attachments = noviceMode ? List.of() : collectReportAttachments(rawHtml, outcome.reportPath);
-        String html = noviceMode ? "" : htmlPostProcessor.cleanDocument(rawHtml, true);
-        String text = "";
-        if (noviceMode) {
-            double indicatorCoveragePct = parseIndicatorCoveragePct(rawHtml);
-            ReportBuilder reportBuilder = new ReportBuilder(config);
-            ReportBuilder.RunType runType = ReportBuilder.detectRunType(outcome.startedAt, zoneId);
-            text = reportBuilder.buildNoviceActionSummary(indicatorCoveragePct, runType, outcome.watchlistCandidates);
-        }
+        List<Path> attachments = collectReportAttachments(rawHtml, outcome.reportPath);
+        String html = htmlPostProcessor.cleanDocument(rawHtml, true);
         if (telemetry != null) {
             telemetry.startStep(RunTelemetry.STEP_MAIL_SEND);
         }
         String summaryForMail = telemetry == null ? "" : telemetry.getSummary();
-        String htmlWithSummary = noviceMode ? "" : appendRunSummaryBlock(html, summaryForMail);
-        String textWithSummary = noviceMode
-                ? (text + "\n\nRun Summary\n" + summaryForMail)
-                : text;
+        String htmlWithSummary = appendRunSummaryBlock(html, summaryForMail);
 
         String subject = String.format(
                 Locale.US,
@@ -748,7 +715,7 @@ private int sendTestDailyReportEmail(
         );
         boolean sent;
         try {
-            sent = mailer.send(settings, subject, textWithSummary, htmlWithSummary, attachments);
+            sent = mailer.send(settings, subject, "", htmlWithSummary, attachments);
             if (telemetry != null) {
                 telemetry.endStep(
                         RunTelemetry.STEP_MAIL_SEND,
@@ -766,7 +733,7 @@ private int sendTestDailyReportEmail(
         }
         if (sent) {
             String modeLabel = settings.dryRun ? "Mail dry-run completed for " : "Email sent to ";
-            System.out.println(modeLabel + String.join(",", settings.to) + (noviceMode ? " [novice]" : "") + " run_id=" + outcome.runId);
+            System.out.println(modeLabel + String.join(",", settings.to) + " run_id=" + outcome.runId);
         } else {
             System.out.println("Report generated, but email failed (mail.fail_fast=false). run_id=" + outcome.runId);
         }
@@ -1142,10 +1109,6 @@ private Options buildOptions() {
         options.addOption(Option.builder().longOpt("trigger").hasArg().argName("manual|cron").desc("run trigger source (default: manual)").build());
         options.addOption(Option.builder().longOpt("max-runs").hasArg().argName("N").desc("daemon safety valve: stop after N completed runs").build());
         options.addOption(Option.builder().longOpt("max-runtime-min").hasArg().argName("M").desc("daemon safety valve: stop after M minutes").build());
-        options.addOption(Option.builder().longOpt("reset-batch").desc("clear batch checkpoint, then exit").build());
-        options.addOption(Option.builder().longOpt("test").desc("rebuild DAILY report from latest market scan data and send test email (no full-market rescan)").build());
-        options.addOption(Option.builder().longOpt("novice").desc("send novice action-only mail body (max 10 lines)").build());
-        options.addOption(Option.builder().longOpt("help").desc("show help").build());
         return options;
     }
 

@@ -66,17 +66,11 @@ At startup, app prints:
 # Config-driven schedule start (no args, DAILY mode)
 java -jar target/stockbot-3.0.0.jar
 
-# Reset batch checkpoint + background startup trigger checkpoint
-java -jar target/stockbot-3.0.0.jar --reset-batch
-
-# Send test email only (reuse latest market scan, no full-market rescan)
-java -jar target/stockbot-3.0.0.jar --test
-
 # One-off migrate old SQLite data into PostgreSQL
 java -jar target/stockbot-3.0.0.jar --migrate-sqlite-to-postgres --sqlite-path outputs/stockbot.db
 
-# Show help
-java -jar target/stockbot-3.0.0.jar --help
+# Run with scheduler loop
+java -jar target/stockbot-3.0.0.jar --daemon
 ```
 
 ## Smoke test

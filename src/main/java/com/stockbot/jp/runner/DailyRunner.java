@@ -1,6 +1,5 @@
 package com.stockbot.jp.runner;
 
-import com.stockbot.app.Prompts;
 import com.stockbot.core.ModuleResult;
 import com.stockbot.core.RunTelemetry;
 import com.stockbot.core.diagnostics.CauseCode;
@@ -8,12 +7,10 @@ import com.stockbot.core.diagnostics.Diagnostics;
 import com.stockbot.core.diagnostics.FeatureStatusResolver;
 import com.stockbot.core.diagnostics.Outcome;
 import com.stockbot.data.IndustryService;
-import com.stockbot.data.MacroService;
 import com.stockbot.data.MarketDataService;
 import com.stockbot.data.NewsService;
 import com.stockbot.data.OllamaClient;
 import com.stockbot.data.http.HttpClientEx;
-import com.stockbot.factors.FactorEngine;
 import com.stockbot.model.DailyPrice;
 import com.stockbot.model.NewsItem;
 import com.stockbot.model.StockContext;
@@ -213,8 +210,6 @@ public final class DailyRunner {
     private final MarketDataService marketDataService;
     private final IndustryService industryService;
     private final NewsService newsService;
-    private final FactorEngine factorEngine;
-    private final com.stockbot.scoring.ScoringEngine legacyScoringEngine;
     private final GatePolicy gatePolicy;
     private final OllamaClient ollamaClient;
     private final WatchlistNewsPipeline watchlistNewsPipeline;
@@ -324,12 +319,6 @@ public DailyRunner(
                 queryExpansionProvider,
                 vectorQueryMaxExtra
         );
-        this.factorEngine = new FactorEngine(
-                new com.stockbot.data.FundamentalsService(legacyHttp),
-                industryService,
-                new MacroService(marketDataService)
-        );
-        this.legacyScoringEngine = new com.stockbot.scoring.ScoringEngine();
         this.gatePolicy = new GatePolicy(
                 config.getDouble("watchlist.ai.score_threshold", -2.0),
                 Math.max(1, config.getInt("watchlist.ai.news_min", 8)),
@@ -904,7 +893,7 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                 PriceFetchTrace priceTrace = fetchWatchPriceTrace(record.ticker, yahooTicker);
                 logPriceTrace(record.ticker, priceTrace);
 
-                LegacyWatchResult legacy = buildLegacyWatchResult(record, watchItem, yahooTicker, priceTrace, aiEnabled, aiAllMode);
+                LegacyWatchResult legacy = buildLegacyWatchResult(record, watchItem, yahooTicker, priceTrace);
                 telemetryStart(RunTelemetry.STEP_INDICATORS);
                 WatchlistScanResult technical = scanWatchRecord(record, watchItem, priceTrace);
                 long indicatorIn = priceTrace == null ? 0 : Math.max(0, priceTrace.barsCount);
@@ -919,6 +908,12 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                 String companyLocal = blankTo(resolvedName.displayNameLocal, resolveCompanyLocalName(record, yahooTicker));
                 String displayName = buildDisplayName(displayCode, companyLocal);
                 String technicalStatus = toWatchStatus(technical, minScore);
+                String rating = mapRatingFromTechnicalStatus(technicalStatus);
+                String risk = mapRiskFromTechnicalStatus(technicalStatus);
+                double technicalScore = technical == null || technical.candidate == null
+                        ? 0.0
+                        : safeDouble(technical.candidate.score);
+                boolean aiTriggered = applyMappedAiGate(legacy.context, technicalStatus, technicalScore, aiEnabled, aiAllMode);
                 EventMemoryService.MemoryInsights memoryInsights = collectMemoryInsights(
                         watchItem,
                         record,
@@ -926,7 +921,7 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                         industryEn,
                         legacy.context.news,
                         technicalStatus,
-                        legacy.context.risk,
+                        risk,
                         technical == null || technical.candidate == null ? "" : technical.candidate.reasonsJson
                 );
                 String technicalReasonsJson = enrichWatchReasonJson(
@@ -973,10 +968,10 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                         technical.fetchSuccess,
                         technical.indicatorReady,
                         false,
-                        safeDouble(legacy.context.totalScore),
-                        safeText(legacy.context.rating),
-                        safeText(legacy.context.risk),
-                        legacy.aiTriggered,
+                        technicalScore,
+                        rating,
+                        risk,
+                        aiTriggered,
                         safeText(legacy.context.gateReason),
                         legacy.context.news.size(),
                         blankTo(legacy.newsSourceLabel, "rss->pgvector"),
@@ -986,7 +981,7 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
                                 legacy.clusterDigestLines,
                                 memoryInsights == null ? List.of() : memoryInsights.toDigestLines()
                         ),
-                        technical.candidate.score,
+                        technicalScore,
                         technicalStatus,
                         technicalReasonsJson,
                         technical.candidate.indicatorsJson,
@@ -1035,7 +1030,7 @@ private List<WatchlistAnalysis> analyzeWatchlist(List<String> watchlist, List<Un
             out = flagged;
         }
 
-        out.sort(Comparator.comparingDouble((WatchlistAnalysis c) -> c.totalScore).reversed());
+        out.sort(Comparator.comparingDouble((WatchlistAnalysis c) -> c.technicalScore).reversed());
         if (telemetry != null) {
             int triggered = 0;
             for (WatchlistAnalysis row : out) {
@@ -1070,6 +1065,72 @@ private String toWatchStatus(WatchlistScanResult result, double minScore) {
             return "OBSERVE";
         }
         return "CANDIDATE";
+    }
+
+    static double mapJpScoreToLegacyGateScore(double jpScore) {
+        if (!Double.isFinite(jpScore)) {
+            return 0.0;
+        }
+        double mapped = (jpScore - 50.0) / 5.0;
+        return Math.max(-10.0, Math.min(10.0, mapped));
+    }
+
+    static String mapRatingFromTechnicalStatus(String technicalStatus) {
+        String normalized = safeStaticText(technicalStatus).toUpperCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return "OBSERVE";
+        }
+        return normalized;
+    }
+
+    static String mapRiskFromTechnicalStatus(String technicalStatus) {
+        String normalized = safeStaticText(technicalStatus).toUpperCase(Locale.ROOT);
+        if ("RISK".equals(normalized)) {
+            return "RISK";
+        }
+        if ("ERROR".equals(normalized)) {
+            return "ERROR";
+        }
+        if ("SKIPPED".equals(normalized)) {
+            return "SKIPPED";
+        }
+        return "NONE";
+    }
+
+    private boolean applyMappedAiGate(
+            StockContext context,
+            String technicalStatus,
+            double technicalScore,
+            boolean aiEnabled,
+            boolean aiAllMode
+    ) {
+        if (context == null) {
+            return false;
+        }
+        if (!aiEnabled) {
+            context.aiRan = false;
+            if (safeText(context.gateReason).isEmpty()) {
+                context.gateReason = "ai_disabled";
+            }
+            return false;
+        }
+
+        String normalizedStatus = safeText(technicalStatus).toUpperCase(Locale.ROOT);
+        if ("ERROR".equals(normalizedStatus) || "SKIPPED".equals(normalizedStatus)) {
+            context.totalScore = null;
+        } else {
+            context.totalScore = mapJpScoreToLegacyGateScore(technicalScore);
+        }
+
+        boolean triggered;
+        if (aiAllMode) {
+            context.gateReason = "all_mode";
+            triggered = true;
+        } else {
+            triggered = gatePolicy.shouldRunAi(context);
+        }
+        context.aiRan = triggered;
+        return triggered;
     }
 
 private WatchlistAnalysis buildSkippedWatchRow(
@@ -1803,13 +1864,10 @@ private LegacyWatchResult buildLegacyWatchResult(
             UniverseRecord record,
             String watchItem,
             String yahooTicker,
-            PriceFetchTrace priceTrace,
-            boolean aiEnabled,
-            boolean aiAllMode
+            PriceFetchTrace priceTrace
     ) {
         StockContext sc = new StockContext(yahooTicker);
         String error = "";
-        boolean aiTriggered = false;
         String newsSourceLabel = "";
         List<String> clusterDigestLines = List.of();
         try {
@@ -1845,23 +1903,15 @@ private LegacyWatchResult buildLegacyWatchResult(
             clusterDigestLines = newsResult.digestLines == null ? List.of() : newsResult.digestLines;
             boolean hasRelevantNews = !newsResult.newsItems.isEmpty();
 
-            factorEngine.computeFactors(sc);
-            legacyScoringEngine.score(sc);
-            aiTriggered = aiEnabled && (aiAllMode || gatePolicy.shouldRunAi(sc));
-            sc.aiRan = aiTriggered;
             String summaryText = TextFormatter.toPlainText(safeText(newsResult.summaryHtml));
             if (summaryText.isBlank()) {
                 summaryText = hasRelevantNews
                         ? "Cluster summary unavailable."
                         : "No material event clusters in lookback window.";
             }
-            if (aiTriggered) {
-                sc.aiSummary = summaryText;
-            } else {
-                sc.aiSummary = hasRelevantNews
-                        ? summaryText
-                        : "No material event clusters in lookback window.";
-            }
+            sc.aiSummary = hasRelevantNews
+                    ? summaryText
+                    : "No material event clusters in lookback window.";
         } catch (Exception e) {
             String msg = safeText(e.getMessage());
             if (msg.isEmpty()) {
@@ -1878,7 +1928,7 @@ private LegacyWatchResult buildLegacyWatchResult(
                     error
             ));
         }
-        return new LegacyWatchResult(sc, aiTriggered, error, newsSourceLabel, clusterDigestLines);
+        return new LegacyWatchResult(sc, error, newsSourceLabel, clusterDigestLines);
     }
 
 private List<BarDaily> toBarsFromYahoo(String jpTicker, List<MarketDataService.DailyBar> history) {
@@ -3117,6 +3167,10 @@ private String safeText(String value) {
         return value == null ? "" : value.trim();
     }
 
+    private static String safeStaticText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
 private String blankTo(String value, String fallback) {
         String t = safeText(value);
         return t.isEmpty() ? fallback : t;
@@ -4198,20 +4252,17 @@ private String universeSignature(List<UniverseRecord> universe) {
 
     private static final class LegacyWatchResult {
         final StockContext context;
-        final boolean aiTriggered;
         final String error;
         final String newsSourceLabel;
         final List<String> clusterDigestLines;
 
         private LegacyWatchResult(
                 StockContext context,
-                boolean aiTriggered,
                 String error,
                 String newsSourceLabel,
                 List<String> clusterDigestLines
         ) {
             this.context = context;
-            this.aiTriggered = aiTriggered;
             this.error = error == null ? "" : error;
             this.newsSourceLabel = newsSourceLabel == null ? "" : newsSourceLabel;
             this.clusterDigestLines = clusterDigestLines == null ? List.of() : List.copyOf(clusterDigestLines);

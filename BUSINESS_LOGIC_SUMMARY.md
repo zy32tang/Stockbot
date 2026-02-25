@@ -1,6 +1,6 @@
 # StockBot Business Logic Summary
 
-> Last updated: 2026-02-23  
+> Last updated: 2026-02-25  
 > Scope: `src/main/java/com/stockbot/app/StockBotApplication.java` + `com.stockbot.jp.*`
 
 ## 1. 本次更新结论（重点）
@@ -24,6 +24,14 @@
 - 模块状态结构化输出：`ModuleStatus` / `ModuleResult`
 - 报告与邮件追加 `Run Summary`
 - Golden Tests + 最小 CI（仅 `mvn -q test`）
+
+### 1.3 Watchlist 口径统一（2026-02-25）
+
+- `WatchlistAnalysis.totalScore` 改为 JP 技术分（与 `technicalScore` 一致，范围 `0..100`）
+- `rating/risk` 不再来自 legacy 打分，改为由 `technicalStatus` 映射
+  - `risk` 采用状态化取值：`RISK/NONE/ERROR/SKIPPED`
+- watchlist 排序与报告展示统一按 JP 技术分
+- `GatePolicy` 保持原配置键（`watchlist.ai.*`），但分数输入改为 JP 分数映射（`(jpScore-50)/5`）后再门控
 
 ## 2. 运行入口与模式
 
@@ -192,4 +200,3 @@ CI：
 2. `--once` 运行并确认进程退出
 3. `--daemon --max-runs=1 --trigger=cron` 验证 DAEMON 启动提示与安全阀退出
 4. 检查报告 HTML 与邮件内容末尾是否含 `Run Summary`
-

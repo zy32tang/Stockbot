@@ -38,4 +38,5 @@ services:
       - ./outputs:/app/outputs
       - ./config.properties:/app/config.properties
       - ./watchlist.txt:/app/watchlist.txt
+    command: ["--daemon"]
     restart: unless-stopped
