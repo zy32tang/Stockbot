@@ -2,6 +2,7 @@ package com.stockbot.jp.output;
 
 import com.stockbot.core.ModuleResult;
 import com.stockbot.core.RunTelemetry;
+import com.stockbot.core.diagnostics.Diagnostics;
 import com.stockbot.jp.config.Config;
 import com.stockbot.jp.model.ScoredCandidate;
 import com.stockbot.jp.model.WatchlistAnalysis;
@@ -91,6 +92,8 @@ class ReportBuilderGoldenTest {
         telemetry.endStep(RunTelemetry.STEP_HTML_RENDER, 1, 1, 0);
         telemetry.finish();
 
+        Diagnostics diagnostics = new Diagnostics(456L, "DAILY_REPORT");
+
         String html = builder.buildHtml(
                 Instant.parse("2026-02-23T01:02:03Z"),
                 ZoneId.of("Asia/Tokyo"),
@@ -104,14 +107,19 @@ class ReportBuilderGoldenTest {
                 null,
                 false,
                 "SUCCESS",
-                null,
+                diagnostics,
                 moduleResults,
                 telemetry
         );
 
         assertTrue(html.contains("StockBot"));
         assertTrue(html.contains("Run Summary"));
-        assertTrue(html.contains("模块状态"));
+        assertTrue(html.contains("Module status (expand)"));
+        assertTrue(html.contains("execution_mode=ONCE"));
+        assertTrue(html.contains("run_mode=ONCE"));
+        assertTrue(html.contains("business_run_mode=DAILY_REPORT"));
+        assertTrue(html.contains("data_granularity=1d"));
+        assertTrue(html.contains("fetch_missing=20"));
         assertTrue(html.contains("Name"));
         assertTrue(html.contains("Last"));
         assertTrue(html.contains("Action"));

@@ -18,6 +18,11 @@
       </span>
     </div>
     <div class="small">coverage_source=<span th:text="${view.coverageSource}">UNKNOWN</span></div>
+    <div class="small" th:if="${view.coverageMeta != null and !#lists.isEmpty(view.coverageMeta)}">
+      <span th:each="meta,iter : ${view.coverageMeta}">
+        <span th:text="${meta}">-</span><span th:if="${!iter.last}"> | </span>
+      </span>
+    </div>
     <div class="small" th:if="${view.partialMessage != null and !#strings.isEmpty(view.partialMessage)}" th:text="${view.partialMessage}"></div>
   </th:block>
 
@@ -41,7 +46,7 @@
       </div>
     </div>
     <details class="card" th:if="${view.moduleStatuses != null and !#lists.isEmpty(view.moduleStatuses)}">
-      <summary class="small">模块状态（点击展开）</summary>
+      <summary class="small">Module status (expand)</summary>
       <div class="small" th:each="m : ${view.moduleStatuses}">
         <div><b th:text="${m.module}">module</b>: <span th:text="${m.status}">OK</span></div>
         <div th:text="${'reason: ' + m.reason}">reason</div>
@@ -116,7 +121,7 @@
     <details>
       <summary class="small">Diagnostics</summary>
       <div class="small" th:if="${view.diagnostics.enabled}">
-        <div th:text="${'run_id=' + view.diagnostics.runId + ' | run_mode=' + view.diagnostics.runMode}"></div>
+        <div th:text="${'run_id=' + view.diagnostics.runId + ' | business_run_mode=' + view.diagnostics.runMode}"></div>
         <div th:text="${'coverage_scope=' + view.diagnostics.coverageScope + ' | coverage_source=' + view.diagnostics.coverageSource}"></div>
       </div>
     </details>

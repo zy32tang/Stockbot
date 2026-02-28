@@ -56,6 +56,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -434,7 +435,9 @@ private int runScheduledMergeReport(
             }
 
             Optional<RunRow> latestMarket = runDao.findLatestMarketScanRun();
-            if (needsFreshMarketScan(latestMarket, zoneId)) {
+            MarketScanDecision marketScanDecision = evaluateMarketScanDecision(latestMarket, zoneId);
+            System.out.println(marketScanDecision.toLogLine());
+            if (marketScanDecision.needScan) {
                 System.out.println("Scheduled event: no fresh market scan for today, running market scan first.");
                 DailyRunOutcome seeded = dailyRunner.runMarketScanOnly(forceUniverse, topN, false);
                 System.out.println("Scheduled pre-scan completed. run_id=" + seeded.runId
@@ -487,15 +490,45 @@ private int runScheduledMergeReport(
         }
     }
 
-private boolean needsFreshMarketScan(Optional<RunRow> latestMarket, ZoneId zoneId) {
-        if (latestMarket.isEmpty()) {
-            return true;
+    static MarketScanDecision evaluateMarketScanDecision(Optional<RunRow> latestMarket, ZoneId zoneId) {
+        ZoneId resolvedZone = zoneId == null ? ZoneId.of("Asia/Tokyo") : zoneId;
+        LocalDate nowDate = ZonedDateTime.now(resolvedZone).toLocalDate();
+        if (latestMarket == null || latestMarket.isEmpty()) {
+            return MarketScanDecision.of(
+                    true,
+                    "NO_PREVIOUS_MARKET_SCAN",
+                    resolvedZone,
+                    nowDate,
+                    null
+            );
         }
         RunRow run = latestMarket.get();
         if (run.startedAt == null) {
-            return true;
+            return MarketScanDecision.of(
+                    true,
+                    "LATEST_RUN_MISSING_STARTED_AT",
+                    resolvedZone,
+                    nowDate,
+                    run
+            );
         }
-        return !run.startedAt.atZone(zoneId).toLocalDate().equals(ZonedDateTime.now(zoneId).toLocalDate());
+        LocalDate latestRunDate = run.startedAt.atZone(resolvedZone).toLocalDate();
+        if (!latestRunDate.equals(nowDate)) {
+            return MarketScanDecision.of(
+                    true,
+                    "LATEST_RUN_NOT_TODAY",
+                    resolvedZone,
+                    nowDate,
+                    run
+            );
+        }
+        return MarketScanDecision.of(
+                false,
+                "LATEST_RUN_ALREADY_TODAY",
+                resolvedZone,
+                nowDate,
+                run
+        );
     }
 
 private void resetBatchCheckpointOnly(Config config, MetadataDao metadataDao) throws Exception {
@@ -1172,6 +1205,83 @@ private String resolveMode(Config config) {
             this.runMode = runMode;
             this.trigger = trigger;
             this.completedRuns = completedRuns == null ? new AtomicInteger(0) : completedRuns;
+        }
+    }
+
+    static final class MarketScanDecision {
+        final boolean needScan;
+        final String reasonCode;
+        final ZoneId zone;
+        final LocalDate nowDate;
+        final Long latestRunId;
+        final Instant latestRunStartedAt;
+        final String latestRunStatus;
+        final LocalDate latestRunLocalDate;
+
+        private MarketScanDecision(
+                boolean needScan,
+                String reasonCode,
+                ZoneId zone,
+                LocalDate nowDate,
+                Long latestRunId,
+                Instant latestRunStartedAt,
+                String latestRunStatus,
+                LocalDate latestRunLocalDate
+        ) {
+            this.needScan = needScan;
+            this.reasonCode = reasonCode == null ? "" : reasonCode;
+            this.zone = zone == null ? ZoneId.of("Asia/Tokyo") : zone;
+            this.nowDate = nowDate;
+            this.latestRunId = latestRunId;
+            this.latestRunStartedAt = latestRunStartedAt;
+            this.latestRunStatus = latestRunStatus == null ? "" : latestRunStatus;
+            this.latestRunLocalDate = latestRunLocalDate;
+        }
+
+        static MarketScanDecision of(
+                boolean needScan,
+                String reasonCode,
+                ZoneId zone,
+                LocalDate nowDate,
+                RunRow latestRun
+        ) {
+            Long runId = latestRun == null ? null : latestRun.id;
+            Instant startedAt = latestRun == null ? null : latestRun.startedAt;
+            String status = latestRun == null ? "" : latestRun.status;
+            LocalDate localDate = null;
+            if (startedAt != null && zone != null) {
+                localDate = startedAt.atZone(zone).toLocalDate();
+            }
+            return new MarketScanDecision(
+                    needScan,
+                    reasonCode,
+                    zone,
+                    nowDate,
+                    runId,
+                    startedAt,
+                    status,
+                    localDate
+            );
+        }
+
+        String toLogLine() {
+            return String.format(
+                    Locale.US,
+                    "MARKET_SCAN_DECISION need_scan=%s reason=%s zone=%s now=%s latest_run_id=%s latest_started=%s latest_status=%s latest_local_date=%s",
+                    needScan,
+                    safeLogValue(reasonCode),
+                    zone == null ? "-" : safeLogValue(zone.getId()),
+                    nowDate == null ? "-" : safeLogValue(nowDate.toString()),
+                    latestRunId == null ? "-" : Long.toString(latestRunId),
+                    latestRunStartedAt == null ? "-" : safeLogValue(latestRunStartedAt.toString()),
+                    safeLogValue(latestRunStatus),
+                    latestRunLocalDate == null ? "-" : safeLogValue(latestRunLocalDate.toString())
+            );
+        }
+
+        private static String safeLogValue(String value) {
+            String t = value == null ? "" : value.trim();
+            return t.isEmpty() ? "-" : t;
         }
     }
 

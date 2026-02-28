@@ -33,7 +33,7 @@ import java.util.Map;
 public final class ReportBuilder {
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
     private static final DateTimeFormatter DISPLAY_TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final LocalTime CLOSE_TIME = LocalTime.of(15, 0);
+    private static final LocalTime DEFAULT_CLOSE_TIME = LocalTime.of(15, 0);
 
     private final Config config;
     private final ThymeleafReportRenderer renderer;
@@ -55,10 +55,19 @@ public final class ReportBuilder {
     }
 
     public static RunType detectRunType(Instant startedAt, ZoneId zoneId) {
+        return detectRunType(startedAt, zoneId, DEFAULT_CLOSE_TIME);
+    }
+
+    public static RunType detectRunType(Instant startedAt, ZoneId zoneId, LocalTime closeTime) {
         if (startedAt == null || zoneId == null) {
             return RunType.CLOSE;
         }
-        return startedAt.atZone(zoneId).toLocalTime().isBefore(CLOSE_TIME) ? RunType.INTRADAY : RunType.CLOSE;
+        LocalTime effectiveClose = closeTime == null ? DEFAULT_CLOSE_TIME : closeTime;
+        return startedAt.atZone(zoneId).toLocalTime().isBefore(effectiveClose) ? RunType.INTRADAY : RunType.CLOSE;
+    }
+
+    public RunType detectRunTypeByConfig(Instant startedAt, ZoneId zoneId) {
+        return detectRunType(startedAt, zoneId, configuredCloseTime());
     }
 
     public Path writeDailyReport(
@@ -243,26 +252,44 @@ public final class ReportBuilder {
                 : scanSummary;
         List<WatchlistAnalysis> watchRows = sortWatch(watchlistCandidates);
         List<ScoredCandidate> topCards = sortMarket(marketReferenceCandidates);
-        if (topCards.size() > 5) {
-            topCards = new ArrayList<>(topCards.subList(0, 5));
+        int topCardsLimit = resolveTopCardsLimit();
+        if (topCards.size() > topCardsLimit) {
+            topCards = new ArrayList<>(topCards.subList(0, topCardsLimit));
         }
         Map<String, ModuleResult> modules = moduleResults == null ? Map.of() : moduleResults;
+        int effectiveTotal = summary.total > 0 ? summary.total : Math.max(0, universeSize);
+        int effectiveFetchCoverage = summary.total > 0
+                ? Math.max(0, summary.fetchCoverage)
+                : Math.max(0, scannedSize);
+        int fetchMissing = Math.max(0, effectiveTotal - effectiveFetchCoverage);
+        String marketInterval = blankTo(config.getString("fetch.interval.market", "1d"), "1d");
 
         Map<String, Object> view = new HashMap<>();
         view.put("pageTitle", i18n.t("report.page.title", "StockBot JP Daily Report"));
         view.put("reportTitle", i18n.t("report.title", "StockBot Daily Report"));
         view.put("topTiles", List.of(
                 kv("key", i18n.t("report.tile.run_time", "Run Time"), "value", DISPLAY_TS.format(startedAt.atZone(zoneId))),
-                kv("key", i18n.t("report.tile.fetch_coverage", "Fetch Coverage"), "value", scannedSize + " / " + Math.max(1, universeSize)),
+                kv(
+                        "key",
+                        i18n.t("report.tile.fetch_coverage", "Fetch Coverage"),
+                        "value",
+                        effectiveFetchCoverage + " / " + Math.max(1, effectiveTotal)
+                ),
                 kv("key", i18n.t("report.tile.candidates", "Candidates"), "value", Integer.toString(candidateSize)),
                 kv("key", i18n.t("report.tile.top_n", "TopN"), "value", Integer.toString(topN)),
                 kv("key", i18n.t("report.tile.run_type", "Run Type"), "value", runTypeLabel(runType))
         ));
         view.put("failureStats", List.of(
                 i18n.t("report.failure.timeout", "Timeout") + ": " + summary.requestFailureCount(ScanFailureReason.TIMEOUT),
+                i18n.t("report.failure.no_data", "No Data") + ": " + summary.requestFailureCount(ScanFailureReason.HTTP_404_NO_DATA),
                 i18n.t("report.failure.parse_error", "Parse Error") + ": " + summary.requestFailureCount(ScanFailureReason.PARSE_ERROR),
+                i18n.t("report.failure.rate_limit", "Rate Limit") + ": " + summary.requestFailureCount(ScanFailureReason.RATE_LIMIT),
                 i18n.t("report.failure.stale", "Stale") + ": " + summary.failureCount(ScanFailureReason.STALE),
                 i18n.t("report.failure.other", "Other") + ": " + summary.failureCount(ScanFailureReason.OTHER)
+        ));
+        view.put("coverageMeta", List.of(
+                i18n.t("report.coverage.data_granularity", "data_granularity") + "=" + marketInterval,
+                i18n.t("report.coverage.fetch_missing", "fetch_missing") + "=" + fetchMissing
         ));
         view.put("hasSuspectPrice", watchRows.stream().anyMatch(r -> r != null && r.priceSuspect));
         view.put("suspectTickers", suspectTickers(watchRows));
@@ -298,10 +325,13 @@ public final class ReportBuilder {
             String action = watchAction(row);
             Outcome<TradePlan> planOutcome = tradePlanBuilder.buildForWatchlist(row);
             List<String> reasonLines = watchReasons(row, planOutcome);
-            String rowNotReadyHint = row.indicatorReady ? "-" : "- (\u539F\u56E0\u89C1\u6A21\u5757\u72B6\u6001)";
-            String entryRange = rowNotReadyHint;
-            String stopLoss = rowNotReadyHint;
-            String takeProfit = rowNotReadyHint;
+            String planFailureReason = resolvePlanFailureReason(planOutcome, row);
+            String rowPlanHint = planFailureReason.isEmpty()
+                    ? "-"
+                    : "-(" + planFailureReason + ")";
+            String entryRange = rowPlanHint;
+            String stopLoss = rowPlanHint;
+            String takeProfit = rowPlanHint;
             if (planOutcome.success && planOutcome.value != null && planOutcome.value.valid) {
                 TradePlan plan = planOutcome.value;
                 entryRange = fmt2(plan.entryLow) + " ~ " + fmt2(plan.entryHigh);
@@ -428,12 +458,30 @@ public final class ReportBuilder {
         return out;
     }
 
+    private int resolveTopCardsLimit() {
+        int configured = config.getInt("report.topcards.max_items", 0);
+        if (configured <= 0) {
+            configured = config.getInt("scan.market_reference_top_n", 5);
+        }
+        return Math.max(1, configured);
+    }
+
+    private LocalTime configuredCloseTime() {
+        String raw = blankTo(config.getString("report.run_type.close_time", "15:00"), "15:00");
+        try {
+            return LocalTime.parse(raw);
+        } catch (Exception ignored) {
+            return DEFAULT_CLOSE_TIME;
+        }
+    }
+
     private String watchAction(WatchlistAnalysis row) {
         if (row == null) {
             return "WAIT";
         }
         String status = blankTo(row.technicalStatus, "").toUpperCase(Locale.ROOT);
-        if ("CANDIDATE".equals(status) && row.technicalScore >= 80.0) {
+        double buyThreshold = config.getDouble("report.action.buy_score_threshold", 80.0);
+        if ("CANDIDATE".equals(status) && row.technicalScore >= buyThreshold) {
             return "BUY";
         }
         if ("CANDIDATE".equals(status)) {
@@ -542,6 +590,30 @@ public final class ReportBuilder {
             return List.of(i18n.t("report.common.na", "N/A"));
         }
         return out;
+    }
+
+    private String resolvePlanFailureReason(Outcome<TradePlan> planOutcome, WatchlistAnalysis row) {
+        if (planOutcome == null) {
+            return row != null && !row.indicatorReady ? "indicator_not_ready" : "plan_unavailable";
+        }
+        if (!planOutcome.success) {
+            Object reason = planOutcome.details == null ? null : planOutcome.details.get("reason");
+            String reasonText = reason == null ? "" : String.valueOf(reason).trim();
+            if (!reasonText.isEmpty()) {
+                return reasonText;
+            }
+            if (planOutcome.causeCode != null) {
+                return planOutcome.causeCode.name().toLowerCase(Locale.ROOT);
+            }
+            return "plan_invalid";
+        }
+        if (planOutcome.value == null || !planOutcome.value.valid) {
+            return "plan_invalid";
+        }
+        if (row != null && !row.indicatorReady) {
+            return "indicator_not_ready";
+        }
+        return "";
     }
 
     private void appendReasonsFromJsonArray(List<String> out, JSONArray array) {

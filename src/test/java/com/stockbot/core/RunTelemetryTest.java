@@ -20,6 +20,7 @@ class RunTelemetryTest {
         String summary = telemetry.getSummary();
 
         assertTrue(summary.contains("run_id=123"));
+        assertTrue(summary.contains("execution_mode=ONCE"));
         assertTrue(summary.contains("run_mode=ONCE"));
         assertTrue(summary.contains("trigger=manual"));
         assertTrue(summary.contains("total_elapsed_ms="));

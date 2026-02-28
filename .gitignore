@@ -61,3 +61,4 @@ temp/
 *.secrets*
 *.key
 *.env
+BUSINESS_LOGIC_SUMMARY.md

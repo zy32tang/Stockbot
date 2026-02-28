@@ -163,6 +163,7 @@ public final class DailyRunner {
             "vector.memory.signal.max_cases",
             "fetch.bars.market",
             "fetch.bars.watchlist",
+            "fetch.interval.market",
             "fetch.retry.max",
             "fetch.retry.backoff_ms",
             "fetch.concurrent",
@@ -185,6 +186,9 @@ public final class DailyRunner {
             "vector.memory.signal.max_cases",
             "indicator.core",
             "indicator.allow_partial",
+            "report.run_type.close_time",
+            "report.action.buy_score_threshold",
+            "report.topcards.max_items",
             "mail.dry_run",
             "mail.fail_fast"
     );
@@ -234,6 +238,18 @@ public final class DailyRunner {
             "earnings", "revenue", "guidance", "outlook", "forecast",
             "analyst", "rating", "price", "target", "dividend", "buyback",
             "merger", "acquisition", "partnership", "lawsuit", "regulation"
+    );
+    private static final Set<String> INVALID_TEXT_TOKENS = Set.of(
+            "",
+            "null",
+            "undefined",
+            "n/a",
+            "na",
+            "none",
+            "unknown",
+            "unkown",
+            "-",
+            "--"
     );
 
 public DailyRunner(
@@ -288,20 +304,48 @@ public DailyRunner(
         VectorSearchService vectorSearchService = eventMemoryService == null ? null : eventMemoryService.vectorSearchService();
         String newsLang = config.getString("watchlist.news.lang", "ja");
         String newsRegion = config.getString("watchlist.news.region", "JP");
+        int tunedResultsPerVariant = resolveAutoTunedNewsInt(
+                "news.query.max_results_per_variant",
+                config.getInt("news.query.max_results_per_variant", 12),
+                12,
+                8
+        );
         int newsMaxItems = Math.max(1, config.getInt(
                 "watchlist.news.max_items",
-                config.getInt("news.query.max_results_per_variant", 12)
+                tunedResultsPerVariant
         ));
         String newsSources = buildNewsSourcesConfig();
-        int queryVariants = Math.max(1, config.getInt(
+        int queryVariants = Math.max(1, resolveAutoTunedNewsInt(
                 "news.query.max_variants",
-                config.getInt("watchlist.news.query_variants", 4)
+                config.getInt("news.query.max_variants", config.getInt("watchlist.news.query_variants", 4)),
+                16,
+                10
         ));
         boolean vectorQueryExpandEnabled = config.getBoolean("news.vector.query_expand.enabled", true);
-        int vectorQueryTopK = Math.max(1, config.getInt("news.vector.query_expand.top_k", 8));
-        int vectorQueryMaxExtra = Math.max(0, config.getInt("news.vector.query_expand.max_extra_queries", 2));
-        int vectorQueryRounds = Math.max(1, config.getInt("news.vector.query_expand.rounds", 2));
-        int vectorQuerySeedCount = Math.max(1, config.getInt("news.vector.query_expand.seed_count", 3));
+        int vectorQueryTopK = Math.max(1, resolveAutoTunedNewsInt(
+                "news.vector.query_expand.top_k",
+                config.getInt("news.vector.query_expand.top_k", 8),
+                12,
+                8
+        ));
+        int vectorQueryMaxExtra = Math.max(0, resolveAutoTunedNewsInt(
+                "news.vector.query_expand.max_extra_queries",
+                config.getInt("news.vector.query_expand.max_extra_queries", 2),
+                4,
+                2
+        ));
+        int vectorQueryRounds = Math.max(1, resolveAutoTunedNewsInt(
+                "news.vector.query_expand.rounds",
+                config.getInt("news.vector.query_expand.rounds", 2),
+                3,
+                2
+        ));
+        int vectorQuerySeedCount = Math.max(1, resolveAutoTunedNewsInt(
+                "news.vector.query_expand.seed_count",
+                config.getInt("news.vector.query_expand.seed_count", 3),
+                4,
+                3
+        ));
         NewsService.QueryExpansionProvider queryExpansionProvider = buildNewsQueryExpansionProvider(
                 vectorSearchService,
                 vectorQueryExpandEnabled,
@@ -395,7 +439,7 @@ public DailyRunOutcome run(
 
             ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
             Path reportDir = config.getPath("report.dir");
-            ReportBuilder.RunType runType = ReportBuilder.detectRunType(startedAt, zoneId);
+            ReportBuilder.RunType runType = reportBuilder.detectRunTypeByConfig(startedAt, zoneId);
             ScanSummaryEnvelope scanSummaryEnvelope = loadScanSummary(
                     runId,
                     scan.stats,
@@ -438,7 +482,7 @@ public DailyRunOutcome run(
                     scan.topN,
                     watchlist,
                     watchlistCandidates,
-                    scan.topCandidates,
+                    scan.marketReferenceCandidates,
                     config.getDouble("scan.min_score", 55.0),
                     runType,
                     previousScores,
@@ -628,7 +672,7 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
             List<WatchlistAnalysis> watchlistCandidates = analyzeWatchlist(watchlist, universe);
             ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
             Path reportDir = config.getPath("report.dir");
-            ReportBuilder.RunType runType = ReportBuilder.detectRunType(startedAt, zoneId);
+            ReportBuilder.RunType runType = reportBuilder.detectRunTypeByConfig(startedAt, zoneId);
             Map<String, Double> previousScores = loadPreviousCandidateScoreMap(
                     marketRun.id,
                     Math.max(topN, config.getInt("scan.top_n", 15))
@@ -678,7 +722,7 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
                     topN,
                     watchlist,
                     watchlistCandidates,
-                    topCandidates,
+                    marketReferenceCandidates,
                     config.getDouble("scan.min_score", 55.0),
                     runType,
                     previousScores,
@@ -1521,7 +1565,8 @@ private YahooFetchResult fetchBarsFromYahoo(String jpTicker, String yahooTicker,
         for (String range : ranges) {
             for (int attempt = 0; attempt <= maxRetry; attempt++) {
                 try {
-                    List<MarketDataService.DailyBar> history = marketDataService.fetchDailyHistoryBars(normalizedYahooTicker, range, "1d");
+                    String interval = resolveFetchInterval(fetchScope);
+                    List<MarketDataService.DailyBar> history = marketDataService.fetchDailyHistoryBars(normalizedYahooTicker, range, interval);
                     List<BarDaily> bars = toBarsFromYahoo(jpTicker, history);
                     if (bars.isEmpty()) {
                         requestFailureCategory = "no_data";
@@ -1561,6 +1606,14 @@ private YahooFetchResult fetchBarsFromYahoo(String jpTicker, String yahooTicker,
             requestError = "fetch_failed:" + safeText(fetchScope);
         }
         return YahooFetchResult.empty(requestFailureCategory, requestError);
+    }
+
+    private String resolveFetchInterval(String fetchScope) {
+        if (!"market".equalsIgnoreCase(safeText(fetchScope))) {
+            return "1d";
+        }
+        String configured = safeText(config.getString("fetch.interval.market", "1d"));
+        return configured.isEmpty() ? "1d" : configured;
     }
 
 private WatchlistScanResult failedWatchRecord(
@@ -1885,7 +1938,50 @@ private LegacyWatchResult buildLegacyWatchResult(
             sc.prevClose = pair.prev;
             sc.pctChange = computePctChange(sc.lastClose, sc.prevClose);
 
-            List<String> queries = buildNewsQueries(record, watchItem, yahooTicker);
+            List<String> baseQueries = buildNewsQueries(record, watchItem, yahooTicker);
+            List<String> effectiveQueries = baseQueries;
+            int droppedInvalid = 0;
+            boolean vectorQueryExpandEnabled = config.getBoolean("news.vector.query_expand.enabled", true);
+            int vectorQueryTopK = Math.max(1, resolveAutoTunedNewsInt(
+                    "news.vector.query_expand.top_k",
+                    config.getInt("news.vector.query_expand.top_k", 8),
+                    12,
+                    8
+            ));
+            int vectorQueryMaxExtra = Math.max(0, resolveAutoTunedNewsInt(
+                    "news.vector.query_expand.max_extra_queries",
+                    config.getInt("news.vector.query_expand.max_extra_queries", 2),
+                    4,
+                    2
+            ));
+            int vectorQueryRounds = Math.max(1, resolveAutoTunedNewsInt(
+                    "news.vector.query_expand.rounds",
+                    config.getInt("news.vector.query_expand.rounds", 2),
+                    3,
+                    2
+            ));
+            int vectorQuerySeedCount = Math.max(1, resolveAutoTunedNewsInt(
+                    "news.vector.query_expand.seed_count",
+                    config.getInt("news.vector.query_expand.seed_count", 3),
+                    4,
+                    3
+            ));
+            VectorSearchService vectorSearchService = eventMemoryService == null ? null : eventMemoryService.vectorSearchService();
+            if (vectorQueryExpandEnabled && vectorSearchService != null && vectorQueryMaxExtra > 0) {
+                effectiveQueries = expandNewsQueriesByVector(
+                        vectorSearchService,
+                        yahooTicker,
+                        baseQueries,
+                        vectorQueryTopK,
+                        vectorQueryMaxExtra,
+                        vectorQueryRounds,
+                        vectorQuerySeedCount
+                );
+            }
+            List<String> cleanedQueries = sanitizeNewsQueryList(effectiveQueries);
+            droppedInvalid = Math.max(0, (effectiveQueries == null ? 0 : effectiveQueries.size()) - cleanedQueries.size());
+            effectiveQueries = cleanedQueries;
+            logNewsQueryPlan(yahooTicker, baseQueries, effectiveQueries, droppedInvalid);
             String companyName = resolveCompanyLocalName(record, yahooTicker);
             String industryEn = normalizeUnknownText(industryService.industryOf(yahooTicker), "");
             String industryZh = normalizeUnknownText(industryService.industryZhOf(yahooTicker), "");
@@ -1894,7 +1990,7 @@ private LegacyWatchResult buildLegacyWatchResult(
                     companyName,
                     industryZh,
                     industryEn,
-                    queries,
+                    effectiveQueries,
                     config.getString("watchlist.news.lang", "ja"),
                     config.getString("watchlist.news.region", "JP")
             );
@@ -1906,12 +2002,12 @@ private LegacyWatchResult buildLegacyWatchResult(
             String summaryText = TextFormatter.toPlainText(safeText(newsResult.summaryHtml));
             if (summaryText.isBlank()) {
                 summaryText = hasRelevantNews
-                        ? "Cluster summary unavailable."
-                        : "No material event clusters in lookback window.";
+                        ? "聚类摘要暂不可用。"
+                        : "回溯窗口内未发现显著事件聚类。";
             }
             sc.aiSummary = hasRelevantNews
                     ? summaryText
-                    : "No material event clusters in lookback window.";
+                    : "回溯窗口内未发现显著事件聚类。";
         } catch (Exception e) {
             String msg = safeText(e.getMessage());
             if (msg.isEmpty()) {
@@ -1919,7 +2015,7 @@ private LegacyWatchResult buildLegacyWatchResult(
             }
             error = e.getClass().getSimpleName() + ": " + msg;
             sc.gateReason = "legacy_error";
-            sc.aiSummary = "AI skipped: legacy pipeline failed (" + error + ")";
+            sc.aiSummary = "AI 已跳过：新闻流水线失败（" + error + "）";
             System.err.println(String.format(
                     Locale.US,
                     "WARN: legacy watch pipeline failed watch_item=%s ticker=%s reason=%s",
@@ -1972,43 +2068,35 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
 
     private List<String> buildNewsQueries(UniverseRecord record, String watchItem, String yahooTicker) {
         LinkedHashSet<String> queries = new LinkedHashSet<>();
-        String recordName = safeText(record == null ? "" : record.name);
-        String recordCode = safeText(record == null ? "" : record.code);
-        String watchToken = safeText(watchItem);
-        String ticker = safeText(yahooTicker);
+        String recordName = normalizeNewsQueryToken(record == null ? "" : record.name);
+        String recordCode = normalizeNewsQueryToken(record == null ? "" : record.code);
+        String watchToken = normalizeNewsQueryToken(watchItem);
+        String ticker = normalizeNewsQueryToken(yahooTicker);
 
-        if (!recordName.isEmpty()) {
-            queries.add(recordName);
-        }
+        addNewsQueryIfPresent(queries, recordName);
         if (!recordCode.isEmpty()) {
-            queries.add(recordCode);
+            addNewsQueryIfPresent(queries, recordCode);
             if (recordCode.matches("\\d{4,6}")) {
-                queries.add(recordCode + ".T");
+                addNewsQueryIfPresent(queries, recordCode + ".T");
             }
         }
-        if (!ticker.isEmpty()) {
-            queries.add(ticker);
-        }
-        if (!watchToken.isEmpty()) {
-            queries.add(watchToken);
-        }
+        addNewsQueryIfPresent(queries, ticker);
+        addNewsQueryIfPresent(queries, watchToken);
 
-        String company = safeText(industryService.companyNameOf(yahooTicker));
-        if (!company.isEmpty()) {
-            queries.add(company);
-        }
-        String industry = safeText(industryService.industryOf(yahooTicker));
+        String company = normalizeNewsQueryToken(industryService.companyNameOf(yahooTicker));
+        addNewsQueryIfPresent(queries, company);
+        String industry = normalizeNewsQueryToken(industryService.industryOf(yahooTicker));
         if (!industry.isEmpty()) {
             String prefix = company.isEmpty() ? (recordName.isEmpty() ? recordCode : recordName) : company;
             if (!prefix.isEmpty()) {
-                queries.add((prefix + " " + industry).trim());
+                addNewsQueryIfPresent(queries, prefix + " " + industry);
             }
-            queries.add(industry);
+            addNewsQueryIfPresent(queries, industry);
         }
 
         List<String> topics = parseTopicCsv(config.getString(
                 "watchlist.news.query_topics",
-                "鬯ｮ・ｫ繝ｻ・ｴ郢晢ｽｻ繝ｻ・ｬ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｪ鬯ｮ・｣隲橸ｽｺ陞ｻ・ｮ郢晢ｽｻ繝ｻ・ｽ郢晢ｽｻ繝ｻ・｡,鬯ｮ・ｮ隰・・・ｽ・ｶ繝ｻ・｣郢晢ｽｻ繝ｻ・ｽ郢晢ｽｻ繝ｻ・ｺ鬯ｯ・ｩ鬮ｦ・ｪ繝ｻ繝ｻ・ｹ譎｢・ｽ・ｻ鬯ｮ・ｫ繝ｻ・ｶ鬯ｲ繝ｻ・ｼ螟ｲ・ｽ・ｽ繝ｻ・ｽ郢晢ｽｻ繝ｻ・ｭ鬯ｯ・ｩ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・ｵ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｾ,鬯ｯ・ｮ繝ｻ・ｫ髫ｲ・ｷ陟・屮・ｽ・ｴ繝ｻ・ｸ郢晢ｽｻ邵ｺ・､・つ鬮ｯ讖ｸ・ｽ・｢郢晢ｽｻ繝ｻ・ｹ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｰ,鬯ｮ・ｯ繝ｻ・ｷ郢晢ｽｻ繝ｻ・ｿ鬯ｩ髦ｪ繝ｻ繝ｻ・ｽ繝ｻ・ｲ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｳ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｨ,鬯ｯ・ｮ繝ｻ・ｫ郢晢ｽｻ繝ｻ・ｪ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｭ鬯ｮ・ｯ陷茨ｽｷ繝ｻ・ｽ繝ｻ・ｯ鬮ｯ・ｷ繝ｻ・ｻ髣包ｽｳ繝ｻ・ｻ驛｢譎｢・ｽ・ｻ鬯ｯ・ｮ繝ｻ・ｮ髯晢ｽｲ繝ｻ・ｨ驛｢譎｢・ｽ・ｻ鬯ｮ・ｫ繝ｻ・ｰ郢晢ｽｻ繝ｻ・ｰ鬮ｯ・ｷ闔蛹・ｽｽ・ｺ繝ｻ・･郢晢ｽｻ繝ｻ・｣郢晢ｽｻ繝ｻ・ｰ,鬯ｯ・ｮ繝ｻ・ｫ鬩包ｽｨ郢ｧ謇假ｽｽ・ｽ繝ｻ・ｸ髫ｶ謚ｵ・ｽ・ｫ郢晢ｽｻ繝ｻ・ｮ驛｢譎｢・ｽ・ｻ鬯ｮ・ｴ鬮ｮ・｣繝ｻ・ｽ繝ｻ・､驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｺ鬯ｮ・ｫ繝ｻ・ｴ髯ｷ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｽ郢晢ｽｻ繝ｻ・ｿ,鬯ｯ・ｯ繝ｻ・ｩ郢晢ｽｻ繝ｻ・･鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｧ鬯ｮ・｣陟募ｾ後・guidance,earnings,outlook,supply chain"
+                "株価,決算,業績,見通し,受注,設備投資,提携,規制,為替,金利,guidance,earnings,outlook,supply chain"
         ));
         String anchor = company.isEmpty() ? (recordName.isEmpty() ? watchToken : recordName) : company;
         if (anchor.isEmpty()) {
@@ -2018,13 +2106,13 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
             if (anchor.isEmpty()) {
                 break;
             }
-            queries.add((anchor + " " + topic).trim());
+            addNewsQueryIfPresent(queries, anchor + " " + topic);
             if (!industry.isEmpty()) {
-                queries.add((industry + " " + topic).trim());
+                addNewsQueryIfPresent(queries, industry + " " + topic);
             }
         }
 
-        return new ArrayList<>(queries);
+        return sanitizeNewsQueryList(new ArrayList<>(queries));
     }
 
     private NewsService.QueryExpansionProvider buildNewsQueryExpansionProvider(
@@ -2127,7 +2215,7 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
             if (hintScores.isEmpty()) {
                 System.out.println(String.format(
                         Locale.US,
-                        "[NEWS_QUERY_ROUND] ticker=%s round=%d seeds=%s hints=0 added=0",
+                        "[NEWS_QUERY_ROUND] ticker=%s round=%d seeds=%s hints=0 added=0 added_queries=[] added_terms=[]",
                         safeText(ticker),
                         round,
                         formatVectorQueryList(seeds, 4)
@@ -2157,6 +2245,8 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
 
             String anchor = chooseVectorAnchor(ticker, workingQueries);
             int addedThisRound = 0;
+            List<String> addedQueriesThisRound = new ArrayList<>();
+            LinkedHashSet<String> addedTermsThisRound = new LinkedHashSet<>();
             for (Map.Entry<String, Double> entry : orderedHints) {
                 if (addedThisRound >= remainingExtra) {
                     break;
@@ -2170,6 +2260,11 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
                 queryScores.put(expanded, baseScore - roundDecay);
                 addedThisRound++;
                 addedTotal++;
+                addedQueriesThisRound.add(expanded);
+                String addedTerm = normalizeNewsQueryToken(entry.getKey());
+                if (!addedTerm.isEmpty()) {
+                    addedTermsThisRound.add(addedTerm);
+                }
             }
 
             int workingLimit = Math.max(
@@ -2186,6 +2281,14 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
                     hintScores.size(),
                     addedThisRound,
                     addedTotal
+            ));
+            System.out.println(String.format(
+                    Locale.US,
+                    "[NEWS_QUERY_ROUND] ticker=%s round=%d added_queries=%s added_terms=%s",
+                    safeText(ticker),
+                    round,
+                    formatVectorQueryList(addedQueriesThisRound, 6),
+                    formatVectorQueryList(new ArrayList<>(addedTermsThisRound), 8)
             ));
             if (addedThisRound <= 0) {
                 break;
@@ -2289,6 +2392,9 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
             if (normalized.length() < 2 || normalized.length() > 32) {
                 continue;
             }
+            if (INVALID_TEXT_TOKENS.contains(normalized)) {
+                continue;
+            }
             if (normalized.matches("\\d{1,2}")) {
                 continue;
             }
@@ -2313,12 +2419,7 @@ private List<DailyPrice> toDailyPrices(List<BarDaily> bars) {
     }
 
     private String normalizeVectorQuery(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace('\u3000', ' ')
-                .replaceAll("\\s+", " ")
-                .trim();
+        return normalizeNewsQueryToken(text);
     }
 
     private String formatVectorQueryList(List<String> queries, int limit) {
@@ -2498,6 +2599,7 @@ private String buildDisplayName(String code, String localName) {
                 || "na".equals(lower)
                 || "none".equals(lower)
                 || "null".equals(lower)
+                || "undefined".equals(lower)
                 || "-".equals(lower)
                 || "--".equals(lower)
                 || lower.startsWith("ai unavailable:")
@@ -3012,7 +3114,7 @@ private EventMemoryService.MemoryInsights collectMemoryInsights(
         LinkedHashSet<String> out = new LinkedHashSet<>();
         if (csv != null) {
             for (String raw : csv.split(",")) {
-                String token = safeText(raw);
+                String token = normalizeNewsQueryToken(raw);
                 if (!token.isEmpty()) {
                     out.add(token);
                 }
@@ -3022,6 +3124,104 @@ private EventMemoryService.MemoryInsights collectMemoryInsights(
             }
         }
         return new ArrayList<>(out);
+    }
+
+    private int resolveAutoTunedNewsInt(String key, int configuredValue, int accuracyTarget, int balancedTarget) {
+        int configured = configuredValue;
+        if (!config.getBoolean("news.performance.auto_tune", true)) {
+            return configured;
+        }
+        if (!"default".equalsIgnoreCase(config.sourceOf(key))) {
+            return configured;
+        }
+        String profile = safeText(config.getString("news.performance.profile", "accuracy")).toLowerCase(Locale.ROOT);
+        if (profile.isEmpty()) {
+            profile = "accuracy";
+        }
+        int cpu = Runtime.getRuntime().availableProcessors();
+        long maxMemGb = Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L);
+        int target = "accuracy".equals(profile) ? accuracyTarget : balancedTarget;
+        if ("news.query.max_variants".equals(key)) {
+            int dynamic = "accuracy".equals(profile)
+                    ? Math.min(16, Math.max(8, cpu / 2 + 4))
+                    : Math.min(10, Math.max(6, cpu / 3 + 3));
+            target = Math.max(target, dynamic);
+        }
+        int tuned = Math.max(configured, target);
+        if (maxMemGb <= 4) {
+            if ("news.query.max_variants".equals(key)) {
+                tuned = Math.min(tuned, 10);
+            } else if ("news.vector.query_expand.max_extra_queries".equals(key)) {
+                tuned = Math.min(tuned, 2);
+            } else if ("news.vector.query_expand.top_k".equals(key)) {
+                tuned = Math.min(tuned, 10);
+            }
+        }
+        return tuned;
+    }
+
+    private void addNewsQueryIfPresent(Set<String> out, String rawValue) {
+        if (out == null) {
+            return;
+        }
+        String normalized = normalizeNewsQueryToken(rawValue);
+        if (normalized.isEmpty()) {
+            return;
+        }
+        out.add(normalized);
+    }
+
+    private List<String> sanitizeNewsQueryList(List<String> queries) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (queries != null) {
+            for (String query : queries) {
+                String normalized = normalizeNewsQueryToken(query);
+                if (!normalized.isEmpty()) {
+                    out.add(normalized);
+                }
+            }
+        }
+        if (out.isEmpty()) {
+            out.add("market");
+        }
+        return new ArrayList<>(out);
+    }
+
+    private String normalizeNewsQueryToken(String rawValue) {
+        if (rawValue == null) {
+            return "";
+        }
+        String cleaned = rawValue
+                .replace('\u3000', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (cleaned.isEmpty()) {
+            return "";
+        }
+        String lower = cleaned.toLowerCase(Locale.ROOT);
+        if (INVALID_TEXT_TOKENS.contains(lower)) {
+            return "";
+        }
+        return cleaned;
+    }
+
+    private void logNewsQueryPlan(String ticker, List<String> baseQueries, List<String> expandedQueries, int droppedInvalid) {
+        if (!config.getBoolean("news.fetch.log_keywords", true)) {
+            return;
+        }
+        List<String> base = sanitizeNewsQueryList(baseQueries);
+        List<String> expanded = sanitizeNewsQueryList(expandedQueries);
+        LinkedHashSet<String> added = new LinkedHashSet<>(expanded);
+        added.removeAll(new LinkedHashSet<>(base));
+        System.out.println(String.format(
+                Locale.US,
+                "[NEWS_QUERY] ticker=%s base=%s expanded=%s added=%s dropped_invalid=%d",
+                safeText(ticker),
+                formatVectorQueryList(base, 10),
+                formatVectorQueryList(expanded, 14),
+                formatVectorQueryList(new ArrayList<>(added), 8),
+                Math.max(0, droppedInvalid)
+        ));
     }
 
     private String buildNewsSourcesConfig() {

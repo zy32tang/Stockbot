@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * End-to-end watchlist news pipeline:
@@ -21,6 +22,18 @@ import java.util.Locale;
  */
 public final class WatchlistNewsPipeline {
     private static final DateTimeFormatter DIGEST_TS_FMT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+    private static final Set<String> INVALID_TEXT_TOKENS = Set.of(
+            "",
+            "null",
+            "undefined",
+            "n/a",
+            "na",
+            "none",
+            "unknown",
+            "unkown",
+            "-",
+            "--"
+    );
 
     private final Config config;
     private final NewsItemDao newsItemDao;
@@ -269,10 +282,15 @@ public final class WatchlistNewsPipeline {
                 continue;
             }
             NewsItemDao.NewsItemRecord top = cluster.items.get(0);
+            String title = safe(top.getTitle());
+            if (title.isEmpty()) {
+                continue;
+            }
+            String source = safe(top.getSource());
             StringBuilder line = new StringBuilder();
-            line.append(safe(top.getTitle()));
-            if (!safe(top.getSource()).isEmpty()) {
-                line.append(" | ").append(top.getSource());
+            line.append(title);
+            if (!source.isEmpty()) {
+                line.append(" | ").append(source);
             }
             if (top.getPublishedAt() != null) {
                 line.append(" | ").append(DIGEST_TS_FMT.format(top.getPublishedAt()));
@@ -291,9 +309,17 @@ public final class WatchlistNewsPipeline {
             if (item == null) {
                 continue;
             }
+            String title = safe(item.getTitle());
+            String content = safe(item.getContent());
+            if (title.isEmpty()) {
+                continue;
+            }
+            if (content.isEmpty()) {
+                content = title;
+            }
             out.add(new NewsItem(
-                    safe(item.getTitle()),
-                    safe(item.getContent()),
+                    title,
+                    content,
                     safe(item.getUrl()),
                     safe(item.getSource()),
                     item.getPublishedAt() == null ? null : item.getPublishedAt().toZonedDateTime()
@@ -326,7 +352,7 @@ public final class WatchlistNewsPipeline {
     }
 
     private void addIfPresent(List<String> out, String value) {
-        String text = safe(value).replace('\u3000', ' ').replaceAll("\\s+", " ").trim();
+        String text = safe(value);
         if (!text.isEmpty()) {
             out.add(text);
         }
@@ -371,7 +397,23 @@ public final class WatchlistNewsPipeline {
     }
 
     private String safe(String value) {
-        return value == null ? "" : value;
+        if (value == null) {
+            return "";
+        }
+        String text = value
+                .replace('\u3000', ' ')
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (text.isEmpty()) {
+            return "";
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (INVALID_TEXT_TOKENS.contains(lower)) {
+            return "";
+        }
+        return text;
     }
 
     private void startStep(String stepName) {
@@ -432,7 +474,7 @@ public final class WatchlistNewsPipeline {
             return new PipelineResult(
                     List.of(),
                     List.of(),
-                    "<p>No material event clusters found in recent news.</p>",
+                    LangChainSummaryService.NO_EVENT_HTML,
                     sourceLabel,
                     ingestedCount,
                     embeddedCount,
@@ -488,12 +530,12 @@ public final class WatchlistNewsPipeline {
 
         void refreshLabel() {
             if (items.isEmpty()) {
-                this.label = "cluster";
+                this.label = "事件聚类";
                 return;
             }
             String base = items.get(0).getTitle() == null ? "" : items.get(0).getTitle().trim();
             if (base.isEmpty()) {
-                base = "event cluster";
+                base = "事件聚类";
             }
             if (items.size() > 1) {
                 base = base + " (+" + (items.size() - 1) + ")";

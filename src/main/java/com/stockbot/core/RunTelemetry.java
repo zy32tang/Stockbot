@@ -199,6 +199,7 @@ public final class RunTelemetry {
         Instant end = finishedAt == null ? Instant.now() : finishedAt;
         StringBuilder sb = new StringBuilder();
         sb.append("run_id=").append(runId).append('\n');
+        sb.append("execution_mode=").append(runMode).append('\n');
         sb.append("run_mode=").append(runMode).append('\n');
         sb.append("trigger=").append(trigger).append('\n');
         sb.append("started_at=").append(ISO.format(startedAt)).append('\n');

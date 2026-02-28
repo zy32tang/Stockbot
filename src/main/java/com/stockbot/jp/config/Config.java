@@ -467,6 +467,9 @@ public final class Config {
         defaults.put("position.total.maxPct", "0.50");
         defaults.put("report.position.max_single_pct", "5.0");
         defaults.put("report.position.max_total_pct", "50.0");
+        defaults.put("report.run_type.close_time", "15:00");
+        defaults.put("report.action.buy_score_threshold", "80");
+        defaults.put("report.topcards.max_items", "0");
         defaults.put("rr.min", "1.5");
         defaults.put("plan.rr.min_floor", "1.1");
         defaults.put("plan.entry.buffer_pct", "0.5");
@@ -515,6 +518,9 @@ public final class Config {
         defaults.put("watchlist.news.query_variants", "10");
         defaults.put("news.query.max_variants", "6");
         defaults.put("news.query.max_results_per_variant", "8");
+        defaults.put("news.performance.auto_tune", "true");
+        defaults.put("news.performance.profile", "accuracy");
+        defaults.put("news.fetch.log_keywords", "true");
         defaults.put("news.vector.query_expand.enabled", "true");
         defaults.put("news.vector.query_expand.top_k", "8");
         defaults.put("news.vector.query_expand.max_extra_queries", "2");
@@ -545,6 +551,7 @@ public final class Config {
         defaults.put("fetch.bars", "520");
         defaults.put("fetch.bars.market", "520");
         defaults.put("fetch.bars.watchlist", "520");
+        defaults.put("fetch.interval.market", "1d");
         defaults.put("fetch.retry.max", "2");
         defaults.put("fetch.retry.backoff_ms", "400");
         defaults.put("indicator.core", "sma20,sma60,rsi14,atr14");

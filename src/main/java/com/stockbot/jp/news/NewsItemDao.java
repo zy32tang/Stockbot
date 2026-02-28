@@ -14,11 +14,25 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * DAO for news_item persistence and pgvector search.
  */
 public final class NewsItemDao {
+    private static final Set<String> INVALID_TEXT_TOKENS = Set.of(
+            "",
+            "null",
+            "undefined",
+            "n/a",
+            "na",
+            "none",
+            "unknown",
+            "unkown",
+            "-",
+            "--"
+    );
+
     private final Database database;
 
     public NewsItemDao(Database database) {
@@ -36,16 +50,21 @@ public final class NewsItemDao {
             conn.setAutoCommit(false);
             NewsItemMapper mapper = session.getMapper(NewsItemMapper.class);
             for (UpsertItem item : items) {
-                if (item == null || isBlank(item.getUrl()) || isBlank(item.getTitle())) {
+                if (item == null) {
+                    continue;
+                }
+                String normalizedUrl = normalizeForStorage(item.getUrl());
+                String normalizedTitle = normalizeForStorage(item.getTitle());
+                if (isBlank(normalizedUrl) || isBlank(normalizedTitle)) {
                     continue;
                 }
                 mapper.upsertNewsItem(
-                        item.getUrl().trim(),
-                        item.getTitle().trim(),
-                        safe(item.getContent()),
-                        blankTo(item.getSource(), "rss"),
-                        safe(item.getLang()),
-                        safe(item.getRegion()),
+                        normalizedUrl,
+                        normalizedTitle,
+                        normalizeForStorage(item.getContent()),
+                        blankTo(normalizeForStorage(item.getSource()), "rss"),
+                        normalizeForStorage(item.getLang()),
+                        normalizeForStorage(item.getRegion()),
                         item.getPublishedAt()
                 );
                 affected++;
@@ -108,12 +127,12 @@ public final class NewsItemDao {
         }
         return NewsItemRecord.builder()
                 .id(row.getId())
-                .url(safe(row.getUrl()))
-                .title(safe(row.getTitle()))
-                .content(safe(row.getContent()))
-                .source(safe(row.getSource()))
-                .lang(safe(row.getLang()))
-                .region(safe(row.getRegion()))
+                .url(normalizeForStorage(row.getUrl()))
+                .title(normalizeForStorage(row.getTitle()))
+                .content(normalizeForStorage(row.getContent()))
+                .source(normalizeForStorage(row.getSource()))
+                .lang(normalizeForStorage(row.getLang()))
+                .region(normalizeForStorage(row.getRegion()))
                 .publishedAt(row.getPublishedAt())
                 .embedding(parseVectorLiteral(row.getEmbeddingText()))
                 .similarity(row.getSimilarity() == null ? 0.0 : row.getSimilarity())
@@ -173,6 +192,18 @@ public final class NewsItemDao {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private String normalizeForStorage(String value) {
+        String text = safe(value).replace('\u3000', ' ').replaceAll("\\s+", " ").trim();
+        if (text.isEmpty()) {
+            return "";
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (INVALID_TEXT_TOKENS.contains(lower)) {
+            return "";
+        }
+        return text;
     }
 
     private String blankTo(String value, String fallback) {

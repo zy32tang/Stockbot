@@ -110,4 +110,73 @@ class ReportBuilderWatchlistPlanTest {
         assertTrue(html.contains("93.10"));
         assertTrue(html.contains("117.60"));
     }
+
+    @Test
+    void watchlistTableShouldRenderPlanFailureReasonInPlanCells() {
+        Config config = Config.fromConfigurationProperties(
+                Path.of(".").toAbsolutePath().normalize(),
+                Map.of("report", Map.of("lang", "en"))
+        );
+        ReportBuilder builder = new ReportBuilder(config);
+
+        WatchlistAnalysis watchRow = new WatchlistAnalysis(
+                "AAPL",
+                "AAPL",
+                "AAPL.US",
+                "Apple",
+                "Apple",
+                "Tech",
+                "Tech",
+                "US",
+                "OK",
+                "AAPL.US",
+                200.0,
+                199.0,
+                0.5,
+                "yahoo",
+                "2026-02-27",
+                250,
+                false,
+                80L,
+                true,
+                true,
+                false,
+                40.0,
+                "OBSERVE",
+                "MID",
+                false,
+                "",
+                0,
+                "rss->pgvector",
+                "",
+                List.of(),
+                40.0,
+                "OBSERVE",
+                "{}",
+                "{}",
+                "{}",
+                "",
+                List.of()
+        );
+
+        String html = builder.buildHtml(
+                Instant.parse("2026-02-27T06:00:00Z"),
+                ZoneId.of("Asia/Tokyo"),
+                100,
+                80,
+                10,
+                5,
+                List.of(watchRow),
+                List.of(),
+                ReportBuilder.RunType.CLOSE,
+                null,
+                false,
+                "SUCCESS",
+                null,
+                Map.of(),
+                null
+        );
+
+        assertTrue(html.contains("-(missing_watchlist_inputs)"));
+    }
 }
