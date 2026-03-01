@@ -59,9 +59,9 @@ class ReportBuilderGoldenTest {
                 "No major cluster",
                 List.of("digest"),
                 62.0,
-                "OBSERVE",
-                "{}",
-                "{}",
+                "NEAR",
+                "{\"tech\":{\"checklist\":[{\"status\":\"WATCH\",\"label\":\"Trend\",\"value\":\"MA5>MA10\",\"rule\":\"structure\"}]}}",
+                "{\"last_close\":7900.0,\"ma5\":7880.0,\"ma10\":7820.0,\"ma20\":7700.0,\"bias\":0.0102,\"vol_ratio\":1.23,\"stop_line\":7600.0,\"stop_pct\":0.038,\"trend_strength\":62,\"signal_status\":\"NEUTRAL\",\"risk_level\":\"NEAR\",\"data_status\":\"OK\",\"subscores\":{\"trend_structure\":28,\"bias_risk\":8,\"volume_confirm\":14,\"execution_quality\":12}}",
                 "{}",
                 "",
                 List.of()
@@ -74,8 +74,8 @@ class ReportBuilderGoldenTest {
                 "JP",
                 88.3,
                 8000.0,
-                "{}",
-                "{}"
+                "{\"filter_reasons\":[\"bias too high\"],\"risk_reasons\":[\"stop too wide\"],\"score_reasons\":[\"low exec\"]}",
+                "{\"last_close\":8000.0,\"ma5\":7900.0,\"ma10\":7800.0,\"ma20\":7700.0,\"bias\":0.0125,\"vol_ratio\":1.4,\"stop_line\":7600.0,\"stop_pct\":0.0500,\"trend_strength\":88,\"signal_status\":\"BULL\",\"risk_level\":\"IN\",\"data_status\":\"OK\",\"subscores\":{\"trend_structure\":45,\"bias_risk\":8,\"volume_confirm\":14,\"execution_quality\":8}}"
         );
 
         Map<String, ModuleResult> moduleResults = new LinkedHashMap<>();
@@ -120,8 +120,9 @@ class ReportBuilderGoldenTest {
         assertTrue(html.contains("business_run_mode=DAILY_REPORT"));
         assertTrue(html.contains("data_granularity=1d"));
         assertTrue(html.contains("fetch_missing=20"));
-        assertTrue(html.contains("Name"));
-        assertTrue(html.contains("Last"));
-        assertTrue(html.contains("Action"));
+        assertTrue(html.contains("Tech 62/100"));
+        assertTrue(html.contains("Price"));
+        assertTrue(html.contains("StopLine"));
+        assertTrue(html.contains("Risk Top3") || html.contains("#1 7974 Nintendo"));
     }
 }

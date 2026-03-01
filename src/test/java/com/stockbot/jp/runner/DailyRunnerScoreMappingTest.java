@@ -23,8 +23,9 @@ class DailyRunnerScoreMappingTest {
     @Test
     void mapRatingFromTechnicalStatus_shouldMapToNormalizedStatus() {
         assertEquals("CANDIDATE", DailyRunner.mapRatingFromTechnicalStatus("candidate"));
+        assertEquals("IN", DailyRunner.mapRatingFromTechnicalStatus(" in "));
         assertEquals("ERROR", DailyRunner.mapRatingFromTechnicalStatus(" ERROR "));
-        assertEquals("OBSERVE", DailyRunner.mapRatingFromTechnicalStatus(""));
+        assertEquals("NEAR", DailyRunner.mapRatingFromTechnicalStatus(""));
     }
 
     @Test
@@ -36,4 +37,3 @@ class DailyRunnerScoreMappingTest {
         assertEquals("NONE", DailyRunner.mapRiskFromTechnicalStatus("OBSERVE"));
     }
 }
-

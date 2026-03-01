@@ -643,7 +643,7 @@ private int sendTestDailyReportEmail(
             );
             String text = "";
             String rawHtml = Files.readString(reportPath, StandardCharsets.UTF_8);
-            List<Path> attachments = collectReportAttachments(rawHtml, reportPath);
+            List<Path> attachments = collectReportAttachments(rawHtml, reportPath, outcome);
             String html = htmlPostProcessor.cleanDocument(rawHtml, true);
             if (telemetry != null) {
                 telemetry.startStep(RunTelemetry.STEP_MAIL_SEND);
@@ -731,7 +731,7 @@ private int sendTestDailyReportEmail(
 
         ZoneId zoneId = ZoneId.of(config.getString("app.zone", "Asia/Tokyo"));
         String rawHtml = Files.readString(outcome.reportPath, StandardCharsets.UTF_8);
-        List<Path> attachments = collectReportAttachments(rawHtml, outcome.reportPath);
+        List<Path> attachments = collectReportAttachments(rawHtml, outcome.reportPath, outcome);
         String html = htmlPostProcessor.cleanDocument(rawHtml, true);
         if (telemetry != null) {
             telemetry.startStep(RunTelemetry.STEP_MAIL_SEND);
@@ -859,7 +859,7 @@ private void printCandidateLog(String prefix, List<ScoredCandidate> candidates, 
         }
     }
 
-private List<Path> collectReportAttachments(String html, Path reportPath) {
+private List<Path> collectReportAttachments(String html, Path reportPath, DailyRunOutcome outcome) {
         LinkedHashSet<Path> files = new LinkedHashSet<>();
         if (reportPath == null) {
             return new ArrayList<>(files);
@@ -901,7 +901,167 @@ private List<Path> collectReportAttachments(String html, Path reportPath) {
                 }
             }
         }
+        Path aiAttachment = buildAiNewsAttachment(outcome, reportPath);
+        if (aiAttachment != null && Files.isRegularFile(aiAttachment)) {
+            files.add(aiAttachment);
+        }
         return new ArrayList<>(files);
+    }
+
+    private Path buildAiNewsAttachment(DailyRunOutcome outcome, Path reportPath) {
+        if (reportPath == null) {
+            return null;
+        }
+        Path baseDir = reportPath.toAbsolutePath().normalize().getParent();
+        if (baseDir == null) {
+            return null;
+        }
+        String reportName = reportPath.getFileName() == null ? "daily_report" : reportPath.getFileName().toString();
+        String stem = reportName.toLowerCase(Locale.ROOT).endsWith(".html")
+                ? reportName.substring(0, reportName.length() - 5)
+                : reportName;
+        String fileName = stem + "_ai_news.txt";
+        Path attachment = baseDir.resolve(fileName).toAbsolutePath().normalize();
+        String content = buildAiNewsAttachmentContent(outcome);
+        try {
+            Files.writeString(attachment, content, StandardCharsets.UTF_8);
+            return attachment;
+        } catch (Exception e) {
+            System.err.println("WARN: failed to write AI news attachment: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private String buildAiNewsAttachmentContent(DailyRunOutcome outcome) {
+        final int wrapWidth = 96;
+        StringBuilder sb = new StringBuilder(2048);
+        List<WatchlistAnalysis> rows = outcome == null || outcome.watchlistCandidates == null
+                ? List.of()
+                : outcome.watchlistCandidates;
+        int readyCount = 0;
+        int newsTotal = 0;
+        for (WatchlistAnalysis row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (row.aiTriggered) {
+                readyCount++;
+            }
+            newsTotal += Math.max(0, row.newsCount);
+        }
+
+        sb.append("AI News Analysis Attachment").append('\n');
+        sb.append("Generated At: ").append(Instant.now()).append('\n');
+        if (outcome != null) {
+            sb.append("Run ID: ").append(outcome.runId).append('\n');
+        }
+        sb.append("Watchlist Size: ").append(rows.size())
+                .append(" | AI Ready: ").append(readyCount)
+                .append(" | News Items: ").append(newsTotal)
+                .append('\n')
+                .append('\n');
+
+        if (rows.isEmpty()) {
+            sb.append("No watchlist rows.").append('\n');
+            return sb.toString();
+        }
+
+        int index = 0;
+        for (WatchlistAnalysis row : rows) {
+            if (row == null) {
+                continue;
+            }
+            index++;
+            String ticker = safe(row.ticker).isEmpty() ? "-" : safe(row.ticker);
+            String name = safe(row.displayName).isEmpty() ? ticker : safe(row.displayName);
+            String source = safe(row.newsSource).isEmpty() ? "-" : safe(row.newsSource);
+
+            sb.append("================================================================================").append('\n');
+            sb.append('[').append(index).append("] ").append(name).append(" (").append(ticker).append(')').append('\n');
+            sb.append("Status").append('\n');
+            sb.append("  AI: ").append(row.aiTriggered ? "ready" : "skipped").append('\n');
+            sb.append("  News: ").append(Math.max(0, row.newsCount)).append(" item(s)").append('\n');
+            sb.append("  Source: ").append(source).append('\n').append('\n');
+
+            String summary = safe(row.aiSummary).trim();
+            sb.append("AI Summary").append('\n');
+            if (summary.isEmpty()) {
+                sb.append("  (empty)").append('\n');
+            } else {
+                appendWrappedText(sb, summary, "  ", "  ", wrapWidth);
+            }
+            sb.append('\n');
+
+            List<String> digests = row.newsDigests == null ? List.of() : row.newsDigests;
+            sb.append("News Digests").append('\n');
+            if (digests.isEmpty()) {
+                sb.append("  (none)").append('\n');
+            } else {
+                int printed = 0;
+                int limit = Math.min(10, digests.size());
+                for (int i = 0; i < limit; i++) {
+                    String digest = safe(digests.get(i)).trim();
+                    if (digest.isEmpty()) {
+                        continue;
+                    }
+                    printed++;
+                    String firstPrefix = "  " + printed + ". ";
+                    String nextPrefix = "     ";
+                    appendWrappedText(sb, digest, firstPrefix, nextPrefix, wrapWidth);
+                }
+                if (printed == 0) {
+                    sb.append("  (none)").append('\n');
+                }
+            }
+            sb.append('\n');
+        }
+
+        if (index == 0) {
+            sb.append("No watchlist rows.").append('\n');
+        }
+        return sb.toString();
+    }
+
+    private void appendWrappedText(StringBuilder sb, String text, String firstPrefix, String nextPrefix, int width) {
+        if (sb == null) {
+            return;
+        }
+        String normalized = safe(text).replace('\r', '\n').trim();
+        if (normalized.isEmpty()) {
+            sb.append(firstPrefix).append("(empty)").append('\n');
+            return;
+        }
+        String[] paragraphs = normalized.split("\\n\\s*\\n");
+        for (int p = 0; p < paragraphs.length; p++) {
+            String paragraph = safe(paragraphs[p]).replace('\n', ' ').trim().replaceAll("\\s+", " ");
+            if (paragraph.isEmpty()) {
+                continue;
+            }
+            String[] words = paragraph.split(" ");
+            StringBuilder line = new StringBuilder(firstPrefix);
+            boolean hasWord = false;
+            for (String word : words) {
+                String token = safe(word);
+                if (token.isEmpty()) {
+                    continue;
+                }
+                if (!hasWord) {
+                    line.append(token);
+                    hasWord = true;
+                    continue;
+                }
+                if (line.length() + 1 + token.length() <= width) {
+                    line.append(' ').append(token);
+                    continue;
+                }
+                sb.append(line).append('\n');
+                line = new StringBuilder(nextPrefix).append(token);
+            }
+            sb.append(line).append('\n');
+            if (p < paragraphs.length - 1) {
+                sb.append('\n');
+            }
+        }
     }
 
     private double parseIndicatorCoveragePct(String rawHtml) {

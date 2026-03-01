@@ -73,6 +73,47 @@ java -jar target/stockbot-3.0.0.jar --migrate-sqlite-to-postgres --sqlite-path o
 java -jar target/stockbot-3.0.0.jar --daemon
 ```
 
+## Technical engine (SSOT)
+
+Main technical outputs are now generated only by `com.stockbot.jp.tech.TechScoreEngine`.
+`DailyRunner`, Top5 selection, and HTML rendering only consume that output and do not re-calculate MA/bias/volume/stop fields.
+
+Core output fields:
+- `trend_strength` (0..100)
+- `signal_status` (`BULL` / `NEUTRAL` / `BEAR` / `DEFEND`)
+- `risk_level` (`IN` / `NEAR` / `RISK`)
+- `ma5`, `ma10`, `ma20`, `bias`, `vol_ratio`, `stop_line`, `stop_pct`
+- `data_status` (`OK` / `DEGRADED` / `MISSING`)
+- `checklist[]` (PASS/WATCH/FAIL with rule explanation)
+
+`data_status` meanings:
+- `OK`: full windows available (MA/volume)
+- `DEGRADED`: downgraded windows were used due to limited history, but output is still complete
+- `MISSING`: insufficient bars or invalid/missing volume; score is forced to defensive fallback (`trend_strength=0`, `risk=RISK`, `signal=DEFEND`)
+
+## Top5 behavior
+
+Top5 now uses fixed rules:
+- candidate filter: `top5.filter_risk=true` filters `risk_level=RISK`
+- sort key: `trend_strength desc` -> `execution_quality desc` -> `volume_confirm desc`
+- count: `top5.count`
+
+If filtered Top5 is empty, report still renders Top5 block:
+- explanation line: no qualified opportunities
+- `Risk Top3` list with checklist-based reasons (market scan pool first, watchlist fallback)
+
+## Key config
+
+Use these keys as the primary technical configuration:
+- `tech.enabled`
+- `tech.ma.short`, `tech.ma.mid`, `tech.ma.long`
+- `tech.bias.safe`, `tech.bias.risk`
+- `tech.volume.avg_window`
+- `tech.stop.max_pct_in`, `tech.stop.max_pct_risk`
+- `top5.filter_risk`, `top5.count`
+
+Legacy `filter.*`, `risk.*`, `score.weight_*`, `indicator.core` keys are retained for compatibility but no longer drive the JP main technical flow.
+
 ## Smoke test
 
 ```bash

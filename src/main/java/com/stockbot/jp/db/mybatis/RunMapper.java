@@ -58,7 +58,6 @@ public interface RunMapper {
             "FROM runs r " +
             "WHERE r.mode IN ('DAILY_MARKET_SCAN','DAILY') " +
             "AND r.status IN ('SUCCESS','PARTIAL') " +
-            "AND EXISTS (SELECT 1 FROM candidates c WHERE c.run_id = r.id) " +
             "ORDER BY r.id DESC LIMIT 1")
     RunRowRecord findLatestMarketScanRun();
 

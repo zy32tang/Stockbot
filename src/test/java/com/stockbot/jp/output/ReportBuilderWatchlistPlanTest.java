@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ReportBuilderWatchlistPlanTest {
 
     @Test
-    void watchlistTableShouldRenderRealReasonsAndTradePlan() {
+    void watchlistCardShouldRenderChecklistAndRiskLine() {
         Config config = Config.fromConfigurationProperties(
                 Path.of(".").toAbsolutePath().normalize(),
                 Map.of("report", Map.of("lang", "en"))
@@ -33,12 +33,18 @@ class ReportBuilderWatchlistPlanTest {
                 + "}";
         String technicalIndicatorsJson = "{"
                 + "\"last_close\":100.0,"
-                + "\"sma20\":100.0,"
-                + "\"low_lookback\":95.0,"
-                + "\"high_lookback\":120.0,"
-                + "\"atr14\":2.0,"
-                + "\"volatility20_pct\":20.0,"
-                + "\"volume_ratio20\":1.2"
+                + "\"ma5\":99.5,"
+                + "\"ma10\":98.8,"
+                + "\"ma20\":97.5,"
+                + "\"bias\":0.005,"
+                + "\"vol_ratio\":1.2,"
+                + "\"stop_line\":96.0,"
+                + "\"stop_pct\":0.0400,"
+                + "\"trend_strength\":70,"
+                + "\"signal_status\":\"BULL\","
+                + "\"risk_level\":\"IN\","
+                + "\"data_status\":\"OK\","
+                + "\"subscores\":{\"trend_structure\":45,\"bias_risk\":8,\"volume_confirm\":14,\"execution_quality\":13}"
                 + "}";
 
         WatchlistAnalysis watchRow = new WatchlistAnalysis(
@@ -73,7 +79,7 @@ class ReportBuilderWatchlistPlanTest {
                 "summary",
                 List.of("digest"),
                 70.0,
-                "CANDIDATE",
+                "IN",
                 technicalReasonsJson,
                 technicalIndicatorsJson,
                 "{}",
@@ -105,14 +111,15 @@ class ReportBuilderWatchlistPlanTest {
                 null
         );
 
+        assertTrue(html.contains("Demo Corp (1234.T)"));
+        assertTrue(html.contains("Tech 70/100"));
         assertTrue(html.contains("pullback_detected"));
-        assertTrue(html.contains("99.50 ~ 100.50"));
-        assertTrue(html.contains("93.10"));
-        assertTrue(html.contains("117.60"));
+        assertTrue(html.contains("96.00"));
+        assertTrue(html.contains("4.00%"));
     }
 
     @Test
-    void watchlistTableShouldRenderPlanFailureReasonInPlanCells() {
+    void watchlistCardShouldFallbackWhenChecklistMissing() {
         Config config = Config.fromConfigurationProperties(
                 Path.of(".").toAbsolutePath().normalize(),
                 Map.of("report", Map.of("lang", "en"))
@@ -151,7 +158,7 @@ class ReportBuilderWatchlistPlanTest {
                 "",
                 List.of(),
                 40.0,
-                "OBSERVE",
+                "NEAR",
                 "{}",
                 "{}",
                 "{}",
@@ -177,6 +184,7 @@ class ReportBuilderWatchlistPlanTest {
                 null
         );
 
-        assertTrue(html.contains("-(missing_watchlist_inputs)"));
+        assertTrue(html.contains("Checklist unavailable, fallback to data status"));
+        assertTrue(html.contains("MISSING"));
     }
 }

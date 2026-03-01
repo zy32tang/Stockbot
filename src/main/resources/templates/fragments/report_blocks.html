@@ -57,34 +57,44 @@
 
   <th:block th:fragment="watchlist(view)">
     <h2>C. Watchlist</h2>
-    <table>
-      <tr>
-        <th>Name</th><th>Last</th><th>Action</th><th>Reasons</th><th>Entry</th><th>Stop</th><th>Target</th>
-      </tr>
-      <tr th:if="${#lists.isEmpty(view.watchRows)}"><td colspan="7">No watchlist rows</td></tr>
-      <tr th:each="row : ${view.watchRows}" th:classappend="${row.priceSuspect} ? 'suspect' : ''">
-        <td>
-          <span th:text="${row.name}">-</span>
-          <details><summary class="small">trace</summary><div class="small" th:text="${row.traceSummary}"></div></details>
-        </td>
-        <td th:text="${row.lastClose}">-</td>
-        <td><span class="chip" th:classappend="${row.actionCss}" th:text="${row.action}">WAIT</span></td>
-        <td><div class="small" th:each="reason : ${row.reasons}" th:text="${'- ' + reason}"></div></td>
-        <td th:text="${row.entryRange}">-</td>
-        <td th:text="${row.stopLoss}">-</td>
-        <td th:text="${row.takeProfit}">-</td>
-      </tr>
-    </table>
-    <div class="card" th:if="${!#lists.isEmpty(view.watchAiItems)}">
-      <h3 style="margin-top:0">News / AI</h3>
-      <div style="margin-bottom:8px" th:each="item : ${view.watchAiItems}">
-        <b th:text="${item.name}">ticker</b>
-        <div class="small" th:each="line : ${item.lines}" th:text="${line}"></div>
-        <details th:if="${item.newsDigests != null and !#lists.isEmpty(item.newsDigests)}">
-          <summary class="small">digests</summary>
-          <div class="small" th:each="d : ${item.newsDigests}" th:text="${'- ' + d}"></div>
-        </details>
+    <div class="warnbox" th:if="${#lists.isEmpty(view.watchCards)}">No watchlist rows</div>
+    <div class="card" th:each="card : ${view.watchCards}">
+      <div>
+        <b th:text="${card.name + ' (' + card.ticker + ')'}">Name(0000.T)</b>
+        <span class="chip gray" th:text="${'Tech ' + card.trendStrength + '/100'}">Tech 0/100</span>
+        <span class="chip good" th:text="${card.signal}">NEUTRAL</span>
+        <span class="chip"
+              th:classappend="${card.riskLevel == 'RISK' ? 'bad' : (card.riskLevel == 'IN' ? 'good' : 'warn')}"
+              th:text="${card.riskLevel}">NEAR</span>
+        <span class="chip"
+              th:classappend="${card.dataStatus == 'OK' ? 'good' : (card.dataStatus == 'DEGRADED' ? 'warn' : 'bad')}"
+              th:text="${card.dataStatus}">OK</span>
       </div>
+      <div class="small">
+        Price <span th:text="${card.price}">-</span>
+        | MA5 <span th:text="${card.ma5}">-</span>
+        | MA10 <span th:text="${card.ma10}">-</span>
+        | MA20 <span th:text="${card.ma20}">-</span>
+        | Bias <span th:text="${card.bias}">-</span>
+        | VolRatio <span th:text="${card.volRatio}">-</span>
+      </div>
+      <div class="small">
+        StopLine <span th:text="${card.stopLine}">-</span>
+        | StopPct <span th:text="${card.stopPct}">-</span>
+      </div>
+      <ul>
+        <li th:each="item : ${card.checklist}">
+          <span class="chip"
+                th:classappend="${item.status == 'FAIL' ? 'bad' : (item.status == 'PASS' ? 'good' : 'warn')}"
+                th:text="${item.status}">WATCH</span>
+          <span th:text="${item.label + ': ' + item.value + ' (' + item.rule + ')'}">rule</span>
+        </li>
+      </ul>
+      <div class="small" th:text="${card.aiStatus + ' | ' + card.newsStatus}"></div>
+      <details>
+        <summary class="small">trace</summary>
+        <div class="small" th:text="${card.traceSummary}">-</div>
+      </details>
     </div>
   </th:block>
 
@@ -96,22 +106,51 @@
           <span th:text="${stat}"></span><span th:if="${!iter.last}"> | </span>
         </span>
       </div>
-      <div class="small" th:if="${view.topCards.skipReason != null and !#strings.isEmpty(view.topCards.skipReason)}" th:text="${view.topCards.skipReason}"></div>
-      <details th:if="${view.topCards.gateLines != null and !#lists.isEmpty(view.topCards.gateLines)}">
-        <summary class="small">gate tree</summary>
-        <div class="small"><div th:each="line : ${view.topCards.gateLines}" th:text="${line}"></div></div>
-      </details>
     </div>
     <div class="warnbox" th:if="${view.topCards.emptyMessage != null and !#strings.isEmpty(view.topCards.emptyMessage)}" th:text="${view.topCards.emptyMessage}"></div>
     <div class="card" th:each="card : ${view.topCards.cards}">
-      <div><b th:text="${'#' + card.rank + ' ' + card.name}">#1</b></div>
-      <div class="small">
-        last <span th:text="${card.latestPrice}">0.00</span> |
-        score <span class="chip gray" th:text="${card.score}">0.0</span> |
-        risk <span class="chip" th:classappend="${card.riskCss}" th:text="${card.riskText}">MID</span>
+      <div>
+        <b th:text="${'#' + card.rank + ' ' + card.name + ' (' + card.ticker + ')'}">#1 Name</b>
+        <span class="chip gray" th:text="${'Tech ' + card.trendStrength + '/100'}">Tech 0/100</span>
+        <span class="chip good" th:text="${card.signal}">NEUTRAL</span>
+        <span class="chip"
+              th:classappend="${card.riskLevel == 'RISK' ? 'bad' : (card.riskLevel == 'IN' ? 'good' : 'warn')}"
+              th:text="${card.riskLevel}">NEAR</span>
       </div>
-      <div class="small" th:text="${card.planLine}"></div>
-      <ul><li th:each="reason : ${card.reasons}" th:text="${reason}"></li></ul>
+      <div class="small">
+        Price <span th:text="${card.price}">-</span>
+        | MA5 <span th:text="${card.ma5}">-</span>
+        | MA10 <span th:text="${card.ma10}">-</span>
+        | MA20 <span th:text="${card.ma20}">-</span>
+        | Bias <span th:text="${card.bias}">-</span>
+        | VolRatio <span th:text="${card.volRatio}">-</span>
+      </div>
+      <div class="small">
+        StopLine <span th:text="${card.stopLine}">-</span>
+        | StopPct <span th:text="${card.stopPct}">-</span>
+        | Data <span th:text="${card.dataStatus}">OK</span>
+      </div>
+      <ul>
+        <li th:each="item : ${card.checklist}">
+          <span class="chip"
+                th:classappend="${item.status == 'FAIL' ? 'bad' : (item.status == 'PASS' ? 'good' : 'warn')}"
+                th:text="${item.status}">WATCH</span>
+          <span th:text="${item.label + ': ' + item.value + ' (' + item.rule + ')'}">rule</span>
+        </li>
+      </ul>
+    </div>
+    <div class="card" th:if="${view.topCards.riskTop3 != null and !#lists.isEmpty(view.topCards.riskTop3)}">
+      <h3 style="margin-top:0">Risk Top3</h3>
+      <div th:each="row : ${view.topCards.riskTop3}" style="margin-bottom:8px">
+        <div>
+          <b th:text="${'#' + row.rank + ' ' + row.name}">#1 Ticker</b>
+          <span class="chip bad" th:text="${row.riskLevel}">RISK</span>
+          <span class="chip warn" th:text="${row.dataStatus}">MISSING</span>
+        </div>
+        <ul>
+          <li th:each="r : ${row.reasons}" th:text="${r}">reason</li>
+        </ul>
+      </div>
     </div>
   </th:block>
 

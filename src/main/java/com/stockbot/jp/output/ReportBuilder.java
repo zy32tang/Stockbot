@@ -299,9 +299,18 @@ public final class ReportBuilder {
                 ? i18n.t("report.partial.market_scan", "Market scan is partial.")
                 : "");
         view.put("systemStatusLines", List.of(
-                i18n.t("report.system.indicator_core", "indicator.core") + "=" + config.getString("indicator.core", "sma20,sma60,rsi14,atr14"),
-                i18n.t("report.system.min_score", "scan.min_score") + "=" + config.getString("scan.min_score", "55"),
-                i18n.t("report.system.min_signals", "filter.min_signals") + "=" + config.getString("filter.min_signals", "3")
+                "tech.ma="
+                        + config.getString("tech.ma.short", "5")
+                        + "/"
+                        + config.getString("tech.ma.mid", "10")
+                        + "/"
+                        + config.getString("tech.ma.long", "20"),
+                "tech.bias.safe/risk="
+                        + config.getString("tech.bias.safe", "0.05")
+                        + "/"
+                        + config.getString("tech.bias.risk", "0.08"),
+                "top5.filter_risk=" + config.getString("top5.filter_risk", "true")
+                        + ", top5.count=" + config.getString("top5.count", "5")
         ));
         view.put("noviceLines", List.of(
                 i18n.t("report.novice.line1", "Prefer observing high score names first."),
@@ -316,68 +325,50 @@ public final class ReportBuilder {
                 "totalMaxPct", fmt1(config.getDouble("report.position.max_total_pct", 50.0))
         ));
 
-        List<Map<String, Object>> watchTable = new ArrayList<>();
-        List<Map<String, Object>> aiItems = new ArrayList<>();
+        List<Map<String, Object>> watchCards = new ArrayList<>();
         for (WatchlistAnalysis row : watchRows) {
             if (row == null) {
                 continue;
             }
-            String action = watchAction(row);
-            Outcome<TradePlan> planOutcome = tradePlanBuilder.buildForWatchlist(row);
-            List<String> reasonLines = watchReasons(row, planOutcome);
-            String planFailureReason = resolvePlanFailureReason(planOutcome, row);
-            String rowPlanHint = planFailureReason.isEmpty()
-                    ? "-"
-                    : "-(" + planFailureReason + ")";
-            String entryRange = rowPlanHint;
-            String stopLoss = rowPlanHint;
-            String takeProfit = rowPlanHint;
-            if (planOutcome.success && planOutcome.value != null && planOutcome.value.valid) {
-                TradePlan plan = planOutcome.value;
-                entryRange = fmt2(plan.entryLow) + " ~ " + fmt2(plan.entryHigh);
-                stopLoss = fmt2(plan.stopLoss);
-                takeProfit = fmt2(plan.takeProfit);
-            }
-            watchTable.add(kv(
-                    "priceSuspect", row.priceSuspect,
-                    "name", blankTo(row.displayName, row.ticker),
-                    "traceSummary", i18n.t("report.trace.source", "source") + "=" + blankTo(row.dataSource, "-")
-                            + " | " + i18n.t("report.trace.ts", "ts") + "=" + blankTo(row.priceTimestamp, "-"),
-                    "lastClose", fmt2(row.lastClose),
-                    "action", watchActionLabel(action),
-                    "actionCss", watchActionCss(action),
-                    "reasons", reasonLines,
-                    "entryRange", entryRange,
-                    "stopLoss", stopLoss,
-                    "takeProfit", takeProfit
-            ));
-            aiItems.add(kv(
-                    "name", blankTo(row.displayName, row.ticker),
-                    "lines", splitLines(blankTo(row.aiSummary, "")),
-                    "newsDigests", row.newsDigests == null ? List.of() : row.newsDigests
-            ));
+            watchCards.add(buildWatchCard(row));
         }
-        view.put("watchRows", watchTable);
-        view.put("watchAiItems", aiItems);
+        view.put("watchCards", watchCards);
 
-        List<Map<String, Object>> cardRows = new ArrayList<>();
-        int rank = 1;
+        List<Map<String, Object>> marketEntries = new ArrayList<>();
         for (ScoredCandidate candidate : topCards) {
             if (candidate == null) {
                 continue;
             }
-            cardRows.add(kv(
-                    "rank", rank++,
-                    "name", blankTo(candidate.code, candidate.ticker) + " " + blankTo(candidate.name, ""),
-                    "latestPrice", fmt2(candidate.close),
-                    "score", fmt1(candidate.score),
-                    "riskCss", candidate.score >= 70 ? "good" : "warn",
-                    "riskText", candidate.score >= 70
-                            ? i18n.t("report.card.risk.low", "LOW")
-                            : i18n.t("report.card.risk.mid", "MID"),
-                    "planLine", i18n.t("report.card.plan", "Use staged entry and strict stop."),
-                    "reasons", List.of("score=" + fmt1(candidate.score))
-            ));
+            marketEntries.add(buildMarketEntry(candidate));
+        }
+        marketEntries.sort(top5Comparator());
+
+        boolean filterRisk = config.getBoolean("top5.filter_risk", true);
+        int topCount = Math.max(1, config.getInt("top5.count", 5));
+        List<Map<String, Object>> qualified = new ArrayList<>();
+        for (Map<String, Object> row : marketEntries) {
+            if (row == null) {
+                continue;
+            }
+            String riskLevel = blankTo(asText(row.get("riskLevel")), "RISK").toUpperCase(Locale.ROOT);
+            if (filterRisk && "RISK".equals(riskLevel)) {
+                continue;
+            }
+            qualified.add(row);
+        }
+
+        List<Map<String, Object>> cardRows = qualified.size() <= topCount
+                ? qualified
+                : new ArrayList<>(qualified.subList(0, topCount));
+        for (int i = 0; i < cardRows.size(); i++) {
+            cardRows.get(i).put("rank", i + 1);
+        }
+
+        String top5EmptyMessage = "";
+        List<Map<String, Object>> riskTop3Rows = List.of();
+        if (cardRows.isEmpty()) {
+            top5EmptyMessage = "No qualified opportunities today (all are RISK or data degraded).";
+            riskTop3Rows = selectRiskTop3(marketEntries, watchCards);
         }
         view.put("topCards", kv(
                 "funnelStats", List.of(i18n.t("report.topcards.funnel_from_market", "market_candidates")
@@ -386,8 +377,9 @@ public final class ReportBuilder {
                 "skipReason", "",
                 "gateLines", List.of(),
                 "noviceWarn", false,
-                "emptyMessage", cardRows.isEmpty() ? i18n.t("report.topcards.empty", "No Top5 candidates.") : "",
+                "emptyMessage", top5EmptyMessage,
                 "cards", cardRows,
+                "riskTop3", riskTop3Rows,
                 "excludedDerivatives", ""
         ));
 
@@ -440,6 +432,265 @@ public final class ReportBuilder {
         return rows;
     }
 
+    private Map<String, Object> buildWatchCard(WatchlistAnalysis row) {
+        JSONObject indicators = safeJsonObject(row == null ? "" : row.technicalIndicatorsJson);
+        JSONObject reasons = safeJsonObject(row == null ? "" : row.technicalReasonsJson);
+        JSONObject subscores = indicators.optJSONObject("subscores");
+
+        int trendStrength = (int) Math.round(indicators.optDouble("trend_strength",
+                row == null ? 0.0 : row.technicalScore));
+        int executionQuality = subscores == null ? 0 : subscores.optInt("execution_quality", 0);
+        int volumeConfirm = subscores == null ? 0 : subscores.optInt("volume_confirm", 0);
+        String signal = blankTo(indicators.optString("signal_status", row == null ? "" : row.technicalStatus), "NEUTRAL");
+        String riskLevel = blankTo(indicators.optString("risk_level", row == null ? "" : row.technicalStatus), "RISK");
+        String dataStatus = blankTo(indicators.optString("data_status", ""), "MISSING");
+
+        double price = finiteOr(indicators.optDouble("last_close", Double.NaN), row == null ? Double.NaN : row.lastClose);
+        double ma5 = indicators.optDouble("ma5", Double.NaN);
+        double ma10 = indicators.optDouble("ma10", Double.NaN);
+        double ma20 = indicators.optDouble("ma20", Double.NaN);
+        double bias = indicators.optDouble("bias", Double.NaN);
+        double volRatio = indicators.optDouble("vol_ratio", Double.NaN);
+        double stopLine = indicators.optDouble("stop_line", Double.NaN);
+        double stopPct = indicators.optDouble("stop_pct", Double.NaN);
+
+        List<Map<String, Object>> checklist = extractChecklistRows(reasons, 6);
+        if (checklist.isEmpty()) {
+            checklist = List.of(kv(
+                    "status", "WATCH",
+                    "label", "Data status",
+                    "value", dataStatus,
+                    "rule", "Checklist unavailable, fallback to data status"
+            ));
+        }
+        List<String> checklistReasons = checklistReasonLines(checklist, 6);
+
+        return kv(
+                "name", blankTo(row == null ? "" : row.displayName, row == null ? "" : row.ticker),
+                "ticker", blankTo(row == null ? "" : row.ticker, row == null ? "" : row.code),
+                "trendStrength", trendStrength,
+                "signal", signal,
+                "riskLevel", riskLevel,
+                "dataStatus", dataStatus,
+                "price", fmt2(price),
+                "ma5", fmt2(ma5),
+                "ma10", fmt2(ma10),
+                "ma20", fmt2(ma20),
+                "bias", fmtPct(bias),
+                "volRatio", fmt2(volRatio),
+                "stopLine", fmt2(stopLine),
+                "stopPct", fmtPct(stopPct),
+                "aiStatus", (row != null && row.aiTriggered) ? "AI: ready" : "AI: skipped",
+                "newsStatus", "News: " + Math.max(0, row == null ? 0 : row.newsCount) + " items",
+                "traceSummary", i18n.t("report.trace.source", "source") + "=" + blankTo(row == null ? "" : row.dataSource, "-")
+                        + " | " + i18n.t("report.trace.ts", "ts") + "=" + blankTo(row == null ? "" : row.priceTimestamp, "-"),
+                "checklist", checklist,
+                "checklistReasons", checklistReasons,
+                "riskRank", riskRank(riskLevel),
+                "dataRank", dataRank(dataStatus),
+                "stopPctRaw", finiteOr(stopPct, 0.0),
+                "biasAbsRaw", Math.abs(finiteOr(bias, 0.0)),
+                "executionQuality", executionQuality,
+                "volumeConfirm", volumeConfirm
+        );
+    }
+
+    private Map<String, Object> buildMarketEntry(ScoredCandidate candidate) {
+        JSONObject indicators = safeJsonObject(candidate == null ? "" : candidate.indicatorsJson);
+        JSONObject reasons = safeJsonObject(candidate == null ? "" : candidate.reasonsJson);
+        JSONObject subscores = indicators.optJSONObject("subscores");
+
+        int trendStrength = indicators.optInt("trend_strength", candidate == null ? 0 : (int) Math.round(candidate.score));
+        int executionQuality = subscores == null ? 0 : subscores.optInt("execution_quality", 0);
+        int volumeConfirm = subscores == null ? 0 : subscores.optInt("volume_confirm", 0);
+        String signal = blankTo(indicators.optString("signal_status", ""), "NEUTRAL");
+        String riskLevel = blankTo(indicators.optString("risk_level", ""), "RISK");
+        String dataStatus = blankTo(indicators.optString("data_status", ""), "MISSING");
+
+        double price = finiteOr(indicators.optDouble("last_close", Double.NaN), candidate == null ? Double.NaN : candidate.close);
+        double ma5 = indicators.optDouble("ma5", Double.NaN);
+        double ma10 = indicators.optDouble("ma10", Double.NaN);
+        double ma20 = indicators.optDouble("ma20", Double.NaN);
+        double bias = indicators.optDouble("bias", Double.NaN);
+        double volRatio = indicators.optDouble("vol_ratio", Double.NaN);
+        double stopLine = indicators.optDouble("stop_line", Double.NaN);
+        double stopPct = indicators.optDouble("stop_pct", Double.NaN);
+
+        List<Map<String, Object>> checklist = extractChecklistRows(reasons, 6);
+        if (checklist.isEmpty()) {
+            checklist = List.of(kv(
+                    "status", "WATCH",
+                    "label", "Data status",
+                    "value", dataStatus,
+                    "rule", "Checklist unavailable, fallback to data status"
+            ));
+        }
+        List<String> checklistReasons = checklistReasonLines(checklist, 6);
+
+        return kv(
+                "name", blankTo(candidate == null ? "" : candidate.code, candidate == null ? "" : candidate.ticker)
+                        + " " + blankTo(candidate == null ? "" : candidate.name, ""),
+                "ticker", blankTo(candidate == null ? "" : candidate.ticker, ""),
+                "trendStrength", trendStrength,
+                "signal", signal,
+                "riskLevel", riskLevel,
+                "dataStatus", dataStatus,
+                "price", fmt2(price),
+                "ma5", fmt2(ma5),
+                "ma10", fmt2(ma10),
+                "ma20", fmt2(ma20),
+                "bias", fmtPct(bias),
+                "volRatio", fmt2(volRatio),
+                "stopLine", fmt2(stopLine),
+                "stopPct", fmtPct(stopPct),
+                "checklist", checklist,
+                "checklistReasons", checklistReasons,
+                "riskRank", riskRank(riskLevel),
+                "dataRank", dataRank(dataStatus),
+                "stopPctRaw", finiteOr(stopPct, 0.0),
+                "biasAbsRaw", Math.abs(finiteOr(bias, 0.0)),
+                "executionQuality", executionQuality,
+                "volumeConfirm", volumeConfirm
+        );
+    }
+
+    private Comparator<Map<String, Object>> top5Comparator() {
+        return (a, b) -> {
+            int c1 = Integer.compare(asInt(b.get("trendStrength")), asInt(a.get("trendStrength")));
+            if (c1 != 0) return c1;
+            int c2 = Integer.compare(asInt(b.get("executionQuality")), asInt(a.get("executionQuality")));
+            if (c2 != 0) return c2;
+            return Integer.compare(asInt(b.get("volumeConfirm")), asInt(a.get("volumeConfirm")));
+        };
+    }
+
+    private List<Map<String, Object>> selectRiskTop3(
+            List<Map<String, Object>> marketEntries,
+            List<Map<String, Object>> watchCards
+    ) {
+        List<Map<String, Object>> source = (marketEntries != null && !marketEntries.isEmpty())
+                ? new ArrayList<>(marketEntries)
+                : (watchCards == null ? new ArrayList<>() : new ArrayList<>(watchCards));
+        source.sort((a, b) -> {
+            int r = Integer.compare(asInt(b.get("riskRank")), asInt(a.get("riskRank")));
+            if (r != 0) return r;
+            int d = Integer.compare(asInt(b.get("dataRank")), asInt(a.get("dataRank")));
+            if (d != 0) return d;
+            int s = Double.compare(asDouble(b.get("stopPctRaw")), asDouble(a.get("stopPctRaw")));
+            if (s != 0) return s;
+            return Double.compare(asDouble(b.get("biasAbsRaw")), asDouble(a.get("biasAbsRaw")));
+        });
+        List<Map<String, Object>> out = new ArrayList<>();
+        int limit = Math.min(3, source.size());
+        for (int i = 0; i < limit; i++) {
+            Map<String, Object> row = source.get(i);
+            @SuppressWarnings("unchecked")
+            List<String> reasons = (List<String>) row.get("checklistReasons");
+            List<String> topReasons = reasons == null ? List.of() : reasons.subList(0, Math.min(3, reasons.size()));
+            out.add(kv(
+                    "rank", i + 1,
+                    "name", blankTo(asText(row.get("name")), asText(row.get("ticker"))),
+                    "riskLevel", blankTo(asText(row.get("riskLevel")), "RISK"),
+                    "dataStatus", blankTo(asText(row.get("dataStatus")), "MISSING"),
+                    "reasons", topReasons
+            ));
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> extractChecklistRows(JSONObject reasonRoot, int maxItems) {
+        if (reasonRoot == null) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        JSONObject tech = reasonRoot.optJSONObject("tech");
+        JSONArray checklist = tech == null ? null : tech.optJSONArray("checklist");
+        if (checklist != null) {
+            for (int i = 0; i < checklist.length(); i++) {
+                JSONObject item = checklist.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                out.add(kv(
+                        "status", blankTo(item.optString("status", ""), "WATCH"),
+                        "label", blankTo(item.optString("label", ""), "Rule"),
+                        "value", blankTo(item.optString("value", ""), "-"),
+                        "rule", blankTo(item.optString("rule", ""), "-")
+                ));
+            }
+        }
+        if (out.isEmpty()) {
+            appendReasonFallback(out, reasonRoot.optJSONArray("risk_reasons"), "FAIL");
+            appendReasonFallback(out, reasonRoot.optJSONArray("filter_reasons"), "WATCH");
+            appendReasonFallback(out, reasonRoot.optJSONArray("score_reasons"), "PASS");
+        }
+        out.sort((a, b) -> Integer.compare(statusPriority(asText(a.get("status"))), statusPriority(asText(b.get("status")))));
+        if (out.size() > maxItems) {
+            return new ArrayList<>(out.subList(0, maxItems));
+        }
+        return out;
+    }
+
+    private void appendReasonFallback(List<Map<String, Object>> out, JSONArray array, String status) {
+        if (out == null || array == null) {
+            return;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            String text = blankTo(array.optString(i, ""), "");
+            if (text.isEmpty()) {
+                continue;
+            }
+            out.add(kv(
+                    "status", status,
+                    "label", "Reason",
+                    "value", text,
+                    "rule", "-"
+            ));
+        }
+    }
+
+    private List<String> checklistReasonLines(List<Map<String, Object>> checklist, int maxItems) {
+        if (checklist == null || checklist.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> item : checklist) {
+            if (item == null) {
+                continue;
+            }
+            String label = blankTo(asText(item.get("label")), "Rule");
+            String value = blankTo(asText(item.get("value")), "-");
+            out.add(label + ": " + value);
+            if (out.size() >= maxItems) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    private int statusPriority(String status) {
+        String s = blankTo(status, "WATCH").toUpperCase(Locale.ROOT);
+        if ("FAIL".equals(s)) return 0;
+        if ("WATCH".equals(s)) return 1;
+        return 2;
+    }
+
+    private int riskRank(String riskLevel) {
+        String risk = blankTo(riskLevel, "").toUpperCase(Locale.ROOT);
+        if ("RISK".equals(risk)) return 3;
+        if ("NEAR".equals(risk)) return 2;
+        if ("IN".equals(risk)) return 1;
+        return 0;
+    }
+
+    private int dataRank(String dataStatus) {
+        String status = blankTo(dataStatus, "").toUpperCase(Locale.ROOT);
+        if ("MISSING".equals(status)) return 3;
+        if ("DEGRADED".equals(status)) return 2;
+        if ("OK".equals(status)) return 1;
+        return 0;
+    }
+
     private List<WatchlistAnalysis> sortWatch(List<WatchlistAnalysis> rows) {
         List<WatchlistAnalysis> out = new ArrayList<>();
         if (rows != null) {
@@ -481,10 +732,10 @@ public final class ReportBuilder {
         }
         String status = blankTo(row.technicalStatus, "").toUpperCase(Locale.ROOT);
         double buyThreshold = config.getDouble("report.action.buy_score_threshold", 80.0);
-        if ("CANDIDATE".equals(status) && row.technicalScore >= buyThreshold) {
+        if ("IN".equals(status) && row.technicalScore >= buyThreshold) {
             return "BUY";
         }
-        if ("CANDIDATE".equals(status)) {
+        if ("IN".equals(status) || "NEAR".equals(status)) {
             return "WATCH";
         }
         if ("RISK".equals(status)) {
@@ -587,7 +838,7 @@ public final class ReportBuilder {
             }
         }
         if (out.isEmpty()) {
-            return List.of(i18n.t("report.common.na", "N/A"));
+            return List.of("No checklist available");
         }
         return out;
     }
@@ -664,6 +915,48 @@ public final class ReportBuilder {
         return Double.isFinite(value) ? String.format(Locale.US, "%.2f", value) : "-";
     }
 
+    private String fmtPct(double value) {
+        return Double.isFinite(value) ? String.format(Locale.US, "%.2f%%", value * 100.0) : "-";
+    }
+
+    private double finiteOr(double value, double fallback) {
+        return Double.isFinite(value) ? value : fallback;
+    }
+
+    private int asInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        String text = asText(value);
+        if (text.isEmpty()) {
+            return 0;
+        }
+        try {
+            return (int) Math.round(Double.parseDouble(text));
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private double asDouble(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        String text = asText(value);
+        if (text.isEmpty()) {
+            return 0.0;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (Exception ignored) {
+            return 0.0;
+        }
+    }
+
+    private String asText(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
     private String blankTo(String value, String fallback) {
         String text = value == null ? "" : value.trim();
         return text.isEmpty() ? fallback : text;
@@ -677,3 +970,6 @@ public final class ReportBuilder {
         return out;
     }
 }
+
+
+

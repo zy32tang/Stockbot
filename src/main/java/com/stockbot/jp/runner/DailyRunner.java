@@ -22,18 +22,12 @@ import com.stockbot.jp.db.RunDao;
 import com.stockbot.jp.db.ScanResultDao;
 import com.stockbot.jp.db.UniverseDao;
 import com.stockbot.jp.data.TickerNameResolver;
-import com.stockbot.jp.indicator.IndicatorEngine;
-import com.stockbot.jp.indicator.IndicatorCoverageResult;
 import com.stockbot.jp.model.BarDaily;
 import com.stockbot.jp.model.DataInsufficientReason;
 import com.stockbot.jp.model.DailyRunOutcome;
-import com.stockbot.jp.model.FilterDecision;
-import com.stockbot.jp.model.IndicatorSnapshot;
-import com.stockbot.jp.model.RiskDecision;
 import com.stockbot.jp.model.RunRow;
 import com.stockbot.jp.model.ScanFailureReason;
 import com.stockbot.jp.model.ScanResultSummary;
-import com.stockbot.jp.model.ScoreResult;
 import com.stockbot.jp.model.ScoredCandidate;
 import com.stockbot.jp.model.TickerScanResult;
 import com.stockbot.jp.model.UniverseRecord;
@@ -42,10 +36,13 @@ import com.stockbot.jp.model.WatchlistAnalysis;
 import com.stockbot.jp.news.NewsItemDao;
 import com.stockbot.jp.news.WatchlistNewsPipeline;
 import com.stockbot.jp.output.ReportBuilder;
-import com.stockbot.jp.strategy.CandidateFilter;
 import com.stockbot.jp.strategy.ReasonJsonBuilder;
-import com.stockbot.jp.strategy.RiskFilter;
-import com.stockbot.jp.strategy.ScoringEngine;
+import com.stockbot.jp.tech.ChecklistStatus;
+import com.stockbot.jp.tech.DataStatus;
+import com.stockbot.jp.tech.RiskLevel;
+import com.stockbot.jp.tech.TechChecklistItem;
+import com.stockbot.jp.tech.TechScoreEngine;
+import com.stockbot.jp.tech.TechScoreResult;
 import com.stockbot.jp.universe.JpxUniverseUpdater;
 import com.stockbot.jp.vector.EventMemoryService;
 import com.stockbot.jp.vector.VectorSearchService;
@@ -95,9 +92,9 @@ public final class DailyRunner {
     private static final String OWNER_WATCH_FETCH = OWNER_RUNNER + "#fetchWatchPriceTrace(...)";
     private static final String OWNER_WATCH_RESOLVE = "com.stockbot.jp.watch.TickerResolver#resolve(...)";
     private static final String OWNER_FEATURE_RESOLVE = "com.stockbot.core.diagnostics.FeatureStatusResolver#resolveFeatureStatus(...)";
-    private static final String OWNER_FILTER = "com.stockbot.jp.strategy.CandidateFilter#evaluate(...)";
-    private static final String OWNER_RISK = "com.stockbot.jp.strategy.RiskFilter#evaluate(...)";
-    private static final String OWNER_SCORE = "com.stockbot.jp.strategy.ScoringEngine#score(...)";
+    private static final String OWNER_FILTER = "com.stockbot.jp.tech.TechScoreEngine#evaluate(...)";
+    private static final String OWNER_RISK = "com.stockbot.jp.tech.TechScoreEngine#evaluate(...)";
+    private static final String OWNER_SCORE = "com.stockbot.jp.tech.TechScoreEngine#evaluate(...)";
     private static final List<String> DIAGNOSTIC_CONFIG_KEYS = List.of(
             "app.zone",
             "app.schedule.enabled",
@@ -128,21 +125,17 @@ public final class DailyRunner {
             "report.advice.avg_score_try_threshold",
             "report.score.tier.focus_threshold",
             "report.score.tier.observe_threshold",
-            "filter.min_signals",
-            "filter.hard.max_drop_3d_pct",
-            "risk.max_atr_pct",
-            "risk.max_volatility_pct",
-            "risk.max_drawdown_pct",
-            "risk.min_volume_ratio",
-            "risk.fail_atr_multiplier",
-            "risk.fail_volatility_multiplier",
-            "risk.penalty.atr_scale",
-            "risk.penalty.atr_cap",
-            "risk.penalty.volatility_scale",
-            "risk.penalty.volatility_cap",
-            "risk.penalty.drawdown_scale",
-            "risk.penalty.drawdown_cap",
-            "risk.penalty.liquidity",
+            "tech.enabled",
+            "tech.ma.short",
+            "tech.ma.mid",
+            "tech.ma.long",
+            "tech.bias.safe",
+            "tech.bias.risk",
+            "tech.volume.avg_window",
+            "tech.stop.max_pct_in",
+            "tech.stop.max_pct_risk",
+            "top5.filter_risk",
+            "top5.count",
             "rr.min",
             "plan.rr.min_floor",
             "plan.entry.buffer_pct",
@@ -184,8 +177,6 @@ public final class DailyRunner {
             "ai.max_tokens",
             "ai.temperature",
             "vector.memory.signal.max_cases",
-            "indicator.core",
-            "indicator.allow_partial",
             "report.run_type.close_time",
             "report.action.buy_score_threshold",
             "report.topcards.max_items",
@@ -204,10 +195,7 @@ public final class DailyRunner {
     private final BarDailyDao barDailyDao;
     private final RunDao runDao;
     private final ScanResultDao scanResultDao;
-    private final IndicatorEngine indicatorEngine;
-    private final CandidateFilter candidateFilter;
-    private final RiskFilter riskFilter;
-    private final ScoringEngine scoringEngine;
+    private final TechScoreEngine techScoreEngine;
     private final ReasonJsonBuilder reasonJsonBuilder;
     private final ReportBuilder reportBuilder;
     private final HttpClientEx legacyHttp;
@@ -222,8 +210,6 @@ public final class DailyRunner {
     private final TickerResolver tickerResolver;
     private final TickerNameResolver tickerNameResolver;
     private final NonJpHandling nonJpHandling;
-    private final List<String> indicatorCoreFields;
-    private final boolean indicatorAllowPartial;
     private final int watchlistMaxAiChars;
     private final int fetchBarsMarket;
     private final int fetchBarsWatchlist;
@@ -251,6 +237,7 @@ public final class DailyRunner {
             "-",
             "--"
     );
+    private static final String META_TOP5_RISK_SNAPSHOT_PREFIX = "top5.risk_snapshot.run.";
 
 public DailyRunner(
             Config config,
@@ -291,10 +278,7 @@ public DailyRunner(
         this.barDailyDao = barDailyDao;
         this.runDao = runDao;
         this.scanResultDao = scanResultDao;
-        this.indicatorEngine = new IndicatorEngine(Math.max(5, config.getInt("stop.loss.lookbackDays", 20)));
-        this.candidateFilter = new CandidateFilter(config);
-        this.riskFilter = new RiskFilter(config);
-        this.scoringEngine = new ScoringEngine(config);
+        this.techScoreEngine = new TechScoreEngine(config);
         this.reasonJsonBuilder = new ReasonJsonBuilder();
         this.reportBuilder = new ReportBuilder(config);
         this.legacyHttp = new HttpClientEx();
@@ -381,8 +365,6 @@ public DailyRunner(
         this.tickerResolver = new TickerResolver(config.getString("watchlist.default_market_for_alpha", "US"));
         this.tickerNameResolver = new TickerNameResolver(config, legacyHttp);
         this.nonJpHandling = parseNonJpHandling(config.getString("watchlist.non_jp_handling", "PROCESS_SEPARATELY"));
-        this.indicatorCoreFields = parseIndicatorCoreFields(config.getString("indicator.core", "sma20,sma60,rsi14,atr14"));
-        this.indicatorAllowPartial = config.getBoolean("indicator.allow_partial", true);
         this.watchlistMaxAiChars = Math.max(120, config.getInt("watchlist.ai.max_chars", 900));
         this.fetchBarsMarket = Math.max(120, config.getInt("fetch.bars.market", config.getInt("fetch.bars", 520)));
         this.fetchBarsWatchlist = Math.max(120, config.getInt("fetch.bars.watchlist", config.getInt("fetch.bars", 520)));
@@ -642,21 +624,18 @@ public DailyRunOutcome runWatchlistReportFromLatestMarket(List<String> watchlist
             Optional<RunRow> latestMarketRun = runDao.findLatestMarketScanRun();
             if (latestMarketRun.isEmpty()) {
                 throw new IllegalStateException(
-                        "No usable market scan result found (missing run or candidate rows). "
-                                + "Background scanner may not have finished yet, or the latest scan produced zero candidates."
+                        "No usable market scan result found. "
+                                + "Background scanner may not have finished yet."
                 );
             }
             RunRow marketRun = latestMarketRun.get();
 
             int topN = marketRun.topN > 0 ? marketRun.topN : Math.max(1, config.getInt("scan.top_n", 15));
             List<ScoredCandidate> topCandidates = runDao.listScoredCandidates(marketRun.id, topN);
-            if (topCandidates.isEmpty()) {
-                throw new IllegalStateException("Latest market scan has no candidate rows. run_id=" + marketRun.id);
+            List<ScoredCandidate> marketReferenceCandidates = new ArrayList<>(topCandidates);
+            if (marketReferenceCandidates.isEmpty()) {
+                marketReferenceCandidates = new ArrayList<>(loadRiskSnapshotCandidates(marketRun.id));
             }
-            int marketReferenceTopN = Math.max(1, config.getInt("scan.market_reference_top_n", 5));
-            List<ScoredCandidate> marketReferenceCandidates = topCandidates.size() <= marketReferenceTopN
-                    ? new ArrayList<>(topCandidates)
-                    : new ArrayList<>(topCandidates.subList(0, marketReferenceTopN));
 
             int maxUniverse = config.getInt("scan.max_universe_size", 0);
             List<UniverseRecord> universe = universeDao.listActive(maxUniverse);
@@ -852,10 +831,8 @@ private MarketScanSnapshot executeMarketScan(
         List<ScoredCandidate> top = rankedTop.size() <= topN
                 ? rankedTop
                 : new ArrayList<>(rankedTop.subList(0, topN));
-        int marketReferenceTopN = Math.max(1, config.getInt("scan.market_reference_top_n", 5));
-        List<ScoredCandidate> marketReferenceCandidates = top.size() <= marketReferenceTopN
-                ? new ArrayList<>(top)
-                : new ArrayList<>(top.subList(0, marketReferenceTopN));
+        List<ScoredCandidate> marketReferenceCandidates = new ArrayList<>(top);
+        persistRiskSnapshot(runId, marketReferenceCandidates);
         return new MarketScanSnapshot(
                 updateResult,
                 universe,
@@ -1099,16 +1076,25 @@ private String toWatchStatus(WatchlistScanResult result, double minScore) {
         if (!result.error.isEmpty()) {
             return "ERROR";
         }
-        if (!result.filterPassed) {
-            return "OBSERVE";
-        }
-        if (!result.riskPassed) {
+        if (result.candidate == null) {
             return "RISK";
         }
-        if (result.candidate.score < minScore) {
-            return "OBSERVE";
+        JSONObject indicators = safeJsonObject(result.candidate.indicatorsJson);
+        String dataStatus = safeText(indicators.optString("data_status", "")).toUpperCase(Locale.ROOT);
+        if ("MISSING".equals(dataStatus)) {
+            return "RISK";
         }
-        return "CANDIDATE";
+        String riskLevel = safeText(indicators.optString("risk_level", "")).toUpperCase(Locale.ROOT);
+        if ("IN".equals(riskLevel) || "NEAR".equals(riskLevel) || "RISK".equals(riskLevel)) {
+            return riskLevel;
+        }
+        if (!result.filterPassed || !result.riskPassed) {
+            return "RISK";
+        }
+        if (result.candidate.score >= minScore) {
+            return "IN";
+        }
+        return "NEAR";
     }
 
     static double mapJpScoreToLegacyGateScore(double jpScore) {
@@ -1122,7 +1108,7 @@ private String toWatchStatus(WatchlistScanResult result, double minScore) {
     static String mapRatingFromTechnicalStatus(String technicalStatus) {
         String normalized = safeStaticText(technicalStatus).toUpperCase(Locale.ROOT);
         if (normalized.isEmpty()) {
-            return "OBSERVE";
+            return "NEAR";
         }
         return normalized;
     }
@@ -1357,122 +1343,58 @@ private String toJpTicker(String normalizedTicker) {
     private WatchlistScanResult scanWatchRecord(UniverseRecord record, String watchItem, PriceFetchTrace priceTrace) {
         try {
             List<BarDaily> bars = priceTrace == null ? List.of() : priceTrace.bars;
-            if (bars.isEmpty()) {
-                return failedWatchRecord(
-                        record,
-                        watchItem,
-                        "fetch_failed:no_data",
-                        CauseCode.FETCH_FAILED,
-                        Map.of("bars_count", 0),
-                        false,
-                        false
-                );
-            }
-
-            int freshDays = autoWatchFreshDays();
-            if (!isBarsFreshEnough(bars, freshDays)) {
-                return failedWatchRecord(
-                        record,
-                        watchItem,
-                        "stale_data",
-                        CauseCode.STALE,
-                        Map.of("fresh_days", freshDays),
-                        true,
-                        false
-                );
-            }
-
-            int minHistory = Math.max(120, config.getInt("scan.min_history_bars", 180));
-            if (bars.size() < minHistory) {
-                return failedWatchRecord(
-                        record,
-                        watchItem,
-                        "history_short",
-                        CauseCode.HISTORY_SHORT,
-                        Map.of("bars_count", bars.size(), "min_history", minHistory),
-                        true,
-                        false
-                );
-            }
-
-            IndicatorSnapshot ind = indicatorEngine.compute(bars);
-            if (ind == null) {
-                return failedWatchRecord(
-                        record,
-                        watchItem,
-                        "indicator_failed",
-                        CauseCode.INDICATOR_ERROR,
-                        Map.of("bars_count", bars.size()),
-                        true,
-                        false
-                );
-            }
-            IndicatorCoverageResult coverage = evaluateIndicatorCoverage(ind);
-            if (!coverage.coreReady()) {
-                return failedWatchRecord(
-                        record,
-                        watchItem,
-                        "missing_core_indicators:" + String.join(",", coverage.missingCoreIndicators),
-                        CauseCode.INDICATOR_ERROR,
-                        Map.of(
-                                "missing_core_indicators", coverage.missingCoreIndicators,
-                                "missing_optional_indicators", coverage.missingOptionalIndicators
-                        ),
-                        true,
-                        false
-                );
-            }
-            if (!indicatorAllowPartial && !coverage.missingOptionalIndicators.isEmpty()) {
-                return failedWatchRecord(
-                        record,
-                        watchItem,
-                        "missing_optional_indicators:" + String.join(",", coverage.missingOptionalIndicators),
-                        CauseCode.INDICATOR_ERROR,
-                        Map.of(
-                                "missing_core_indicators", coverage.missingCoreIndicators,
-                                "missing_optional_indicators", coverage.missingOptionalIndicators
-                        ),
-                        true,
-                        false
-                );
-            }
-
-            FilterDecision filter = candidateFilter.evaluate(bars, ind);
-            RiskDecision risk = riskFilter.evaluate(ind);
-            ScoreResult score = scoringEngine.score(ind, risk);
-            String reasonsJson = reasonJsonBuilder.buildReasonsJson(filter, risk, score);
-            String indicatorsJson = reasonJsonBuilder.buildIndicatorsJson(ind);
+            TechScoreResult tech = techScoreEngine.evaluate(record.ticker, record.name, bars);
+            double minScore = config.getDouble("scan.min_score", 55.0);
+            String reasonsJson = reasonJsonBuilder.buildReasonsJson(tech, minScore);
+            String indicatorsJson = reasonJsonBuilder.buildIndicatorsJson(tech);
             ScoredCandidate candidate = new ScoredCandidate(
                     record.ticker,
                     record.code,
                     record.name,
                     record.market,
-                    score.score,
-                    ind.lastClose,
+                    tech.getTrendStrength(),
+                    tech.getPrice(),
                     appendWatchMeta(reasonsJson, watchItem),
                     indicatorsJson
             );
+
+            boolean filterPassed = tech.getDataStatus() != DataStatus.MISSING;
+            boolean riskPassed = tech.getRiskLevel() != RiskLevel.RISK;
+            boolean indicatorReady = tech.getDataStatus() != DataStatus.MISSING;
+            boolean fetchSuccess = bars != null && !bars.isEmpty();
             Outcome<Void> outcome;
-            if (!filter.passed) {
+            if (!filterPassed) {
                 outcome = Outcome.failure(
-                        CauseCode.FILTER_REJECTED,
+                        CauseCode.INDICATOR_ERROR,
                         OWNER_FILTER,
-                        Map.of("filter_reasons", filter.reasons, "filter_metrics", filter.metrics)
+                        Map.of(
+                                "data_status", tech.getDataStatus().name(),
+                                "bars_count", bars == null ? 0 : bars.size()
+                        )
                 );
-            } else if (!risk.passed) {
+            } else if (!riskPassed) {
                 outcome = Outcome.failure(
                         CauseCode.RISK_REJECTED,
                         OWNER_RISK,
                         Map.of(
-                                "risk_flags", risk.flags,
-                                "risk_penalty", risk.penalty,
-                                "risk_reasons", risk.reasons
+                                "risk_level", tech.getRiskLevel().name(),
+                                "stop_pct", tech.getStopPct(),
+                                "bias", tech.getBias()
+                        )
+                );
+            } else if (tech.getTrendStrength() < minScore) {
+                outcome = Outcome.failure(
+                        CauseCode.SCORE_BELOW_THRESHOLD,
+                        OWNER_SCORE,
+                        Map.of(
+                                "score", tech.getTrendStrength(),
+                                "min_score", minScore
                         )
                 );
             } else {
                 outcome = Outcome.success(null, OWNER_WATCH_SCAN);
             }
-            return new WatchlistScanResult(candidate, filter.passed, risk.passed, true, true, outcome, null);
+            return new WatchlistScanResult(candidate, filterPassed, riskPassed, fetchSuccess, indicatorReady, outcome, "");
         } catch (Exception e) {
             return failedWatchRecord(
                     record,
@@ -1780,14 +1702,17 @@ private CauseCode determineWatchCause(WatchlistScanResult technical, String tech
         if (technical.outcome != null && !technical.outcome.success && technical.outcome.causeCode != CauseCode.NONE) {
             return technical.outcome.causeCode;
         }
-        if ("ERROR".equalsIgnoreCase(safeText(technicalStatus))) {
+        String normalized = safeText(technicalStatus).toUpperCase(Locale.ROOT);
+        if ("ERROR".equals(normalized)) {
             return CauseCode.RUNTIME_ERROR;
         }
-        if (!technical.filterPassed) {
-            return CauseCode.FILTER_REJECTED;
-        }
-        if (!technical.riskPassed) {
+        if ("RISK".equals(normalized)) {
             return CauseCode.RISK_REJECTED;
+        }
+        JSONObject indicators = safeJsonObject(technical.candidate == null ? "" : technical.candidate.indicatorsJson);
+        String dataStatus = safeText(indicators.optString("data_status", "")).toUpperCase(Locale.ROOT);
+        if ("MISSING".equals(dataStatus)) {
+            return CauseCode.INDICATOR_ERROR;
         }
         if (technical.candidate != null && technical.candidate.score < minScore) {
             return CauseCode.SCORE_BELOW_THRESHOLD;
@@ -1829,87 +1754,6 @@ private JSONObject safeJsonObject(String raw) {
             return new JSONObject(raw);
         } catch (Exception ignored) {
             return new JSONObject();
-        }
-    }
-
-    private List<String> parseIndicatorCoreFields(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return List.of("sma20", "sma60", "rsi14", "atr14");
-        }
-        Set<String> out = new TreeSet<>();
-        String[] tokens = raw.split("[,;]");
-        for (String token : tokens) {
-            String t = safeText(token).toLowerCase(Locale.ROOT);
-            if (!t.isEmpty()) {
-                out.add(t);
-            }
-        }
-        if (out.isEmpty()) {
-            return List.of("sma20", "sma60", "rsi14", "atr14");
-        }
-        return new ArrayList<>(out);
-    }
-
-    private IndicatorCoverageResult evaluateIndicatorCoverage(IndicatorSnapshot ind) {
-        if (ind == null) {
-            return new IndicatorCoverageResult(List.of("indicator_snapshot"), List.of());
-        }
-        List<String> missingCore = new ArrayList<>();
-        List<String> missingOptional = new ArrayList<>();
-
-        for (String core : indicatorCoreFields) {
-            if (!isIndicatorPresent(ind, core)) {
-                missingCore.add(core);
-            }
-        }
-
-        String[] optional = new String[] {
-                "sma120", "drawdown120_pct", "volatility20_pct", "volume_ratio20", "return3d_pct", "return5d_pct", "return10d_pct"
-        };
-        for (String item : optional) {
-            if (!isIndicatorPresent(ind, item)) {
-                missingOptional.add(item);
-            }
-        }
-        return new IndicatorCoverageResult(missingCore, missingOptional);
-    }
-
-    private boolean isIndicatorPresent(IndicatorSnapshot ind, String indicatorName) {
-        if (ind == null) {
-            return false;
-        }
-        String name = safeText(indicatorName).toLowerCase(Locale.ROOT);
-        switch (name) {
-            case "last_close":
-                return Double.isFinite(ind.lastClose) && ind.lastClose > 0.0;
-            case "sma20":
-                return Double.isFinite(ind.sma20) && ind.sma20 > 0.0;
-            case "sma60":
-                return Double.isFinite(ind.sma60) && ind.sma60 > 0.0;
-            case "sma120":
-                return Double.isFinite(ind.sma120) && ind.sma120 > 0.0;
-            case "rsi14":
-                return Double.isFinite(ind.rsi14) && ind.rsi14 >= 0.0 && ind.rsi14 <= 100.0;
-            case "atr14":
-                return Double.isFinite(ind.atr14) && ind.atr14 >= 0.0;
-            case "atr_pct":
-                return Double.isFinite(ind.atrPct) && ind.atrPct >= 0.0;
-            case "avg_volume20":
-                return Double.isFinite(ind.avgVolume20) && ind.avgVolume20 >= 0.0;
-            case "volume_ratio20":
-                return Double.isFinite(ind.volumeRatio20) && ind.volumeRatio20 >= 0.0;
-            case "drawdown120_pct":
-                return Double.isFinite(ind.drawdown120Pct);
-            case "volatility20_pct":
-                return Double.isFinite(ind.volatility20Pct) && ind.volatility20Pct >= 0.0;
-            case "return3d_pct":
-                return Double.isFinite(ind.return3dPct);
-            case "return5d_pct":
-                return Double.isFinite(ind.return5dPct);
-            case "return10d_pct":
-                return Double.isFinite(ind.return10dPct);
-            default:
-                return true;
         }
     }
 
@@ -3363,6 +3207,144 @@ private EventMemoryService.MemoryInsights collectMemoryInsights(
         return modules;
     }
 
+    private void persistRiskSnapshot(long runId, List<ScoredCandidate> candidates) {
+        if (runId <= 0L) {
+            return;
+        }
+        List<ScoredCandidate> riskTop = selectRiskTopCandidates(candidates, 3);
+        JSONArray arr = new JSONArray();
+        for (ScoredCandidate candidate : riskTop) {
+            if (candidate == null) {
+                continue;
+            }
+            JSONObject row = new JSONObject();
+            row.put("ticker", safeText(candidate.ticker));
+            row.put("code", safeText(candidate.code));
+            row.put("name", safeText(candidate.name));
+            row.put("market", safeText(candidate.market));
+            row.put("score", candidate.score);
+            row.put("close", candidate.close);
+            row.put("reasons_json", safeText(candidate.reasonsJson));
+            row.put("indicators_json", safeText(candidate.indicatorsJson));
+            arr.put(row);
+        }
+        try {
+            metadataDao.put(META_TOP5_RISK_SNAPSHOT_PREFIX + runId, arr.toString());
+        } catch (Exception e) {
+            System.err.println("WARN: failed to persist top5 risk snapshot run_id=" + runId + ", err=" + e.getMessage());
+        }
+    }
+
+    private List<ScoredCandidate> loadRiskSnapshotCandidates(long runId) {
+        if (runId <= 0L) {
+            return List.of();
+        }
+        try {
+            Optional<String> rawOpt = metadataDao.get(META_TOP5_RISK_SNAPSHOT_PREFIX + runId);
+            if (rawOpt.isEmpty()) {
+                return List.of();
+            }
+            String raw = safeText(rawOpt.get());
+            if (raw.isEmpty()) {
+                return List.of();
+            }
+            JSONArray arr = new JSONArray(raw);
+            List<ScoredCandidate> out = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject row = arr.optJSONObject(i);
+                if (row == null) {
+                    continue;
+                }
+                out.add(new ScoredCandidate(
+                        row.optString("ticker", ""),
+                        row.optString("code", ""),
+                        row.optString("name", ""),
+                        row.optString("market", ""),
+                        row.optDouble("score", 0.0),
+                        row.optDouble("close", 0.0),
+                        row.optString("reasons_json", ""),
+                        row.optString("indicators_json", "")
+                ));
+            }
+            return out;
+        } catch (Exception e) {
+            System.err.println("WARN: failed to load top5 risk snapshot run_id=" + runId + ", err=" + e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<ScoredCandidate> selectRiskTopCandidates(List<ScoredCandidate> candidates, int limit) {
+        if (candidates == null || candidates.isEmpty()) {
+            return List.of();
+        }
+        List<ScoredCandidate> pool = new ArrayList<>();
+        for (ScoredCandidate candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            pool.add(candidate);
+        }
+        if (pool.isEmpty()) {
+            return List.of();
+        }
+        pool.sort((a, b) -> {
+            JSONObject ai = safeJsonObject(a.indicatorsJson);
+            JSONObject bi = safeJsonObject(b.indicatorsJson);
+            int ra = riskRank(ai.optString("risk_level", ""));
+            int rb = riskRank(bi.optString("risk_level", ""));
+            if (ra != rb) {
+                return Integer.compare(rb, ra);
+            }
+            int da = dataRank(ai.optString("data_status", ""));
+            int db = dataRank(bi.optString("data_status", ""));
+            if (da != db) {
+                return Integer.compare(db, da);
+            }
+            double sa = ai.optDouble("stop_pct", 0.0);
+            double sb = bi.optDouble("stop_pct", 0.0);
+            int stopCmp = Double.compare(sb, sa);
+            if (stopCmp != 0) {
+                return stopCmp;
+            }
+            double ba = Math.abs(ai.optDouble("bias", 0.0));
+            double bb = Math.abs(bi.optDouble("bias", 0.0));
+            int biasCmp = Double.compare(bb, ba);
+            if (biasCmp != 0) {
+                return biasCmp;
+            }
+            return Double.compare(a.score, b.score);
+        });
+        return pool.size() <= limit ? pool : new ArrayList<>(pool.subList(0, limit));
+    }
+
+    private int riskRank(String riskLevel) {
+        String r = safeText(riskLevel).toUpperCase(Locale.ROOT);
+        if ("RISK".equals(r)) {
+            return 3;
+        }
+        if ("NEAR".equals(r)) {
+            return 2;
+        }
+        if ("IN".equals(r)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private int dataRank(String dataStatus) {
+        String d = safeText(dataStatus).toUpperCase(Locale.ROOT);
+        if ("MISSING".equals(d)) {
+            return 3;
+        }
+        if ("DEGRADED".equals(d)) {
+            return 2;
+        }
+        if ("OK".equals(d)) {
+            return 1;
+        }
+        return 0;
+    }
+
 private String safeText(String value) {
         return value == null ? "" : value.trim();
     }
@@ -3805,200 +3787,25 @@ private TickerScanResult evaluateBars(
             );
         }
 
-        int freshDays = autoMarketFreshDays();
-        if (!isBarsFreshEnough(bars, freshDays)) {
-            return TickerScanResult.ok(
-                    universe,
-                    bars,
-                    null,
-                    downloadNanos,
-                    parseNanos,
-                    dataSource,
-                    requestFailed,
-                    requestFailureCategory,
-                    fetchLatencyMs,
-                    "cache".equalsIgnoreCase(dataSource),
-                    barsCount,
-                    lastTradeDate,
-                    lastClose,
-                    true,
-                    false,
-                    DataInsufficientReason.STALE,
-                    ScanFailureReason.STALE
-            );
-        }
-
-        int minHistoryBars = Math.max(120, config.getInt("scan.min_history_bars", 180));
-        if (barsCount < minHistoryBars) {
-            return TickerScanResult.ok(
-                    universe,
-                    bars,
-                    null,
-                    downloadNanos,
-                    parseNanos,
-                    dataSource,
-                    requestFailed,
-                    requestFailureCategory,
-                    fetchLatencyMs,
-                    "cache".equalsIgnoreCase(dataSource),
-                    barsCount,
-                    lastTradeDate,
-                    lastClose,
-                    true,
-                    false,
-                    DataInsufficientReason.HISTORY_SHORT,
-                    ScanFailureReason.HISTORY_SHORT
-            );
-        }
-
         try {
-            if (!isTradableAndLiquid(bars)) {
-                return TickerScanResult.ok(
-                        universe,
-                        bars,
-                        null,
-                        downloadNanos,
-                        parseNanos,
-                        dataSource,
-                        requestFailed,
-                        requestFailureCategory,
-                        fetchLatencyMs,
-                        "cache".equalsIgnoreCase(dataSource),
-                        barsCount,
-                        lastTradeDate,
-                        lastClose,
-                        true,
-                        false,
-                        DataInsufficientReason.NONE,
-                        ScanFailureReason.FILTERED_NON_TRADABLE
-                );
-            }
-
-            IndicatorSnapshot ind = indicatorEngine.compute(bars);
-            if (ind == null) {
-                return TickerScanResult.failed(
-                        universe,
-                        "indicator_failed",
-                        downloadNanos,
-                        parseNanos,
-                        dataSource,
-                        requestFailed,
-                        requestFailureCategory,
-                        fetchLatencyMs,
-                        "cache".equalsIgnoreCase(dataSource),
-                        barsCount,
-                        lastTradeDate,
-                        lastClose,
-                        true,
-                        DataInsufficientReason.NONE,
-                        ScanFailureReason.OTHER
-                );
-            }
-            IndicatorCoverageResult coverage = evaluateIndicatorCoverage(ind);
-            if (!coverage.coreReady() || (!indicatorAllowPartial && !coverage.missingOptionalIndicators.isEmpty())) {
-                return TickerScanResult.ok(
-                        universe,
-                        bars,
-                        null,
-                        downloadNanos,
-                        parseNanos,
-                        dataSource,
-                        requestFailed,
-                        requestFailureCategory,
-                        fetchLatencyMs,
-                        "cache".equalsIgnoreCase(dataSource),
-                        barsCount,
-                        lastTradeDate,
-                        ind.lastClose,
-                        true,
-                        false,
-                        DataInsufficientReason.NONE,
-                        ScanFailureReason.NONE
-                );
-            }
-
-            FilterDecision filter = candidateFilter.evaluate(bars, ind);
-            if (!filter.passed) {
-                return TickerScanResult.ok(
-                        universe,
-                        bars,
-                        null,
-                        downloadNanos,
-                        parseNanos,
-                        dataSource,
-                        requestFailed,
-                        requestFailureCategory,
-                        fetchLatencyMs,
-                        "cache".equalsIgnoreCase(dataSource),
-                        barsCount,
-                        lastTradeDate,
-                        ind.lastClose,
-                        true,
-                        true,
-                        DataInsufficientReason.NONE,
-                        ScanFailureReason.NONE
-                );
-            }
-
-            RiskDecision risk = riskFilter.evaluate(ind);
-            if (!risk.passed) {
-                return TickerScanResult.ok(
-                        universe,
-                        bars,
-                        null,
-                        downloadNanos,
-                        parseNanos,
-                        dataSource,
-                        requestFailed,
-                        requestFailureCategory,
-                        fetchLatencyMs,
-                        "cache".equalsIgnoreCase(dataSource),
-                        barsCount,
-                        lastTradeDate,
-                        ind.lastClose,
-                        true,
-                        true,
-                        DataInsufficientReason.NONE,
-                        ScanFailureReason.NONE
-                );
-            }
-
-            ScoreResult score = scoringEngine.score(ind, risk);
-            double minScore = config.getDouble("scan.min_score", 55.0);
-            if (score.score < minScore) {
-                return TickerScanResult.ok(
-                        universe,
-                        bars,
-                        null,
-                        downloadNanos,
-                        parseNanos,
-                        dataSource,
-                        requestFailed,
-                        requestFailureCategory,
-                        fetchLatencyMs,
-                        "cache".equalsIgnoreCase(dataSource),
-                        barsCount,
-                        lastTradeDate,
-                        ind.lastClose,
-                        true,
-                        true,
-                        DataInsufficientReason.NONE,
-                        ScanFailureReason.NONE
-                );
-            }
-
-            String reasonsJson = reasonJsonBuilder.buildReasonsJson(filter, risk, score);
-            String indicatorsJson = reasonJsonBuilder.buildIndicatorsJson(ind);
+            TechScoreResult tech = techScoreEngine.evaluate(universe.ticker, universe.name, bars);
+            String reasonsJson = reasonJsonBuilder.buildReasonsJson(tech, config.getDouble("scan.min_score", 55.0));
+            String indicatorsJson = reasonJsonBuilder.buildIndicatorsJson(tech);
             ScoredCandidate candidate = new ScoredCandidate(
                     universe.ticker,
                     universe.code,
                     universe.name,
                     universe.market,
-                    score.score,
-                    ind.lastClose,
+                    tech.getTrendStrength(),
+                    tech.getPrice(),
                     reasonsJson,
                     indicatorsJson
             );
+
+            DataInsufficientReason insufficientReason = tech.getDataStatus() == DataStatus.MISSING
+                    ? DataInsufficientReason.HISTORY_SHORT
+                    : DataInsufficientReason.NONE;
+            boolean indicatorReady = tech.getDataStatus() != DataStatus.MISSING;
             return TickerScanResult.ok(
                     universe,
                     bars,
@@ -4012,10 +3819,10 @@ private TickerScanResult evaluateBars(
                     "cache".equalsIgnoreCase(dataSource),
                     barsCount,
                     lastTradeDate,
-                    ind.lastClose,
+                    tech.getPrice(),
                     true,
-                    true,
-                    DataInsufficientReason.NONE,
+                    indicatorReady,
+                    insufficientReason,
                     ScanFailureReason.NONE
             );
         } catch (Exception e) {

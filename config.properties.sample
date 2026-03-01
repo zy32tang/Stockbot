@@ -13,6 +13,18 @@ email.subject_prefix=[StockBot JP]
 report.top5.min_indicator_coverage_pct=80
 report.coverage.use_tradable_denominator=true
 
+tech.enabled=true
+tech.ma.short=5
+tech.ma.mid=10
+tech.ma.long=20
+tech.bias.safe=0.05
+tech.bias.risk=0.08
+tech.volume.avg_window=20
+tech.stop.max_pct_in=0.04
+tech.stop.max_pct_risk=0.06
+top5.filter_risk=true
+top5.count=5
+
 fetch.concurrent=12
 news.concurrent=10
 fetch.bars=520
@@ -38,8 +50,9 @@ ai.temperature=0.2
 # watchlist.ai.news_min=8
 # watchlist.ai.drop_pct_threshold=-2.0
 
-indicator.core=sma20,sma60,rsi14,atr14
-indicator.allow_partial=true
+# Deprecated in main technical flow (kept only for legacy compatibility):
+# indicator.core=sma20,sma60,rsi14,atr14
+# indicator.allow_partial=true
 
 vector.memory.enabled=true
 vector.memory.news.top_k=12

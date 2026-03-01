@@ -31,11 +31,11 @@
 </head>
 <body>
   <div class="wrap">
-    <th:block th:replace="fragments/report_blocks :: header(${view})"></th:block>
-    <th:block th:replace="fragments/report_blocks :: status(${view})"></th:block>
-    <th:block th:replace="fragments/report_blocks :: watchlist(${view})"></th:block>
-    <th:block th:replace="fragments/report_blocks :: topcards(${view})"></th:block>
-    <th:block th:replace="fragments/report_blocks :: footer(${view})"></th:block>
+    <th:block th:replace="~{fragments/report_blocks :: header(${view})}"></th:block>
+    <th:block th:replace="~{fragments/report_blocks :: status(${view})}"></th:block>
+    <th:block th:replace="~{fragments/report_blocks :: watchlist(${view})}"></th:block>
+    <th:block th:replace="~{fragments/report_blocks :: topcards(${view})}"></th:block>
+    <th:block th:replace="~{fragments/report_blocks :: footer(${view})}"></th:block>
   </div>
 </body>
 </html>

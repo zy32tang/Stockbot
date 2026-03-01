@@ -437,6 +437,19 @@ public final class Config {
         defaults.put("scan.progress.log_every", "100");
         defaults.put("watchlist.price.duplicate_min_count", "2");
 
+        defaults.put("tech.enabled", "true");
+        defaults.put("tech.ma.short", "5");
+        defaults.put("tech.ma.mid", "10");
+        defaults.put("tech.ma.long", "20");
+        defaults.put("tech.bias.safe", "0.05");
+        defaults.put("tech.bias.risk", "0.08");
+        defaults.put("tech.volume.avg_window", "20");
+        defaults.put("tech.stop.max_pct_in", "0.04");
+        defaults.put("tech.stop.max_pct_risk", "0.06");
+        defaults.put("top5.filter_risk", "true");
+        defaults.put("top5.count", "5");
+
+        // Deprecated: kept only for backward compatibility. Main technical flow now uses tech.*.
         defaults.put("filter.min_signals", "3");
         defaults.put("filter.hard.max_drop_3d_pct", "-8");
         defaults.put("filter.pullback_threshold_pct", "-8");
@@ -478,6 +491,7 @@ public final class Config {
         defaults.put("stop.loss.lookbackDays", "20");
         defaults.put("stop.loss.bufferPct", "0.02");
 
+        // Deprecated: kept for legacy modules only.
         defaults.put("score.weight_pullback", "0.22");
         defaults.put("score.weight_rsi", "0.23");
         defaults.put("score.weight_sma_gap", "0.16");
